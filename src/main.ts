@@ -2,7 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
-import { writeFileSync } from 'fs';
+import { writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 async function bootstrap() {
@@ -29,8 +29,10 @@ async function bootstrap() {
   SwaggerModule.setup('api', app, document);
 
   const swaggerPath = join(__dirname, '..', 'src', 'openapi-spec.json');
-  writeFileSync(swaggerPath, JSON.stringify(document, null, 2));
-  console.log(`OpenAPI spec written to ${swaggerPath}`);
+  if (existsSync(join(__dirname, '..', 'src'))) {
+    writeFileSync(swaggerPath, JSON.stringify(document, null, 2));
+    console.log(`OpenAPI spec written to ${swaggerPath}`);
+  }
 
   const port = process.env.PORT ?? 4141;
   await app.listen(port);

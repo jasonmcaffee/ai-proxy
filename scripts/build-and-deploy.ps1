@@ -25,4 +25,10 @@ Copy-Item -Path (Join-Path $ProjectRoot "package.json") -Destination $Dest -Forc
 $EnvFile = Join-Path $ProjectRoot ".env"
 if (Test-Path $EnvFile) { Copy-Item -Path $EnvFile -Destination $Dest -Force }
 
+Write-Host "Installing production dependencies in $Dest..."
+Push-Location $Dest
+npm install --omit=dev
+if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error "npm install failed"; exit 1 }
+Pop-Location
+
 Write-Host "Deploy complete."

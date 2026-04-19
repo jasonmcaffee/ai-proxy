@@ -53,10 +53,11 @@ export class ChatController {
   private async handleNonStream(params: LlamaParamsNonStreaming, signal: AbortSignal, res: Response): Promise<void> {
     try {
       const result = await this.retryExecutor.invoke(params, signal);
-      res.json(result);
+      res.status(HttpStatus.OK).json(result);
     } catch (e: any) {
       const status = e?.status ?? HttpStatus.INTERNAL_SERVER_ERROR;
-      res.status(status).json({ error: { message: e?.message ?? 'Unknown error', type: 'proxy_error' } });
+      const errorBody = e?.error ?? { message: e?.message ?? 'Unknown error', type: 'proxy_error' };
+      res.status(status).json({ error: errorBody });
     }
   }
 
@@ -68,20 +69,20 @@ export class ChatController {
    * @param res - express response
    */
   private async handleStream(params: LlamaParamsStreaming, awaitToolCallCompletion: boolean, signal: AbortSignal, res: Response): Promise<void> {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Transfer-Encoding', 'chunked');
-
     try {
       const { stream, recoveryCount } = await this.streamBuffer.pipe(params, awaitToolCallCompletion, signal);
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('Transfer-Encoding', 'chunked');
       if (recoveryCount > 0) {
         res.setHeader('x-ai-proxy-stream-recovery', String(recoveryCount));
       }
       stream.pipe(res);
     } catch (e: any) {
-      res.write(`data: ${JSON.stringify({ error: { message: e?.message ?? 'Stream error', type: 'proxy_error' } })}\n\n`);
-      res.end();
+      const status = e?.status ?? HttpStatus.INTERNAL_SERVER_ERROR;
+      const errorBody = e?.error ?? { message: e?.message ?? 'Stream error', type: 'proxy_error' };
+      res.status(status).json({ error: errorBody });
     }
   }
 }
