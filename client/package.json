@@ -1,0 +1,14 @@
+{
+  "name": "ai-proxy-client",
+  "version": "0.0.1",
+  "description": "Generated TypeScript client for ai-proxy",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
