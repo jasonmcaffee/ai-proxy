@@ -40,13 +40,14 @@ export class StreamBufferService {
    * Creates a passthrough stream that pipes llama.cpp SSE output to the client.
    * @param payload - OpenAI-compatible chat completion request body
    * @param awaitToolCallCompletion - if true, buffer tool-call deltas into one chunk
+   * @param signal - optional AbortSignal; aborts the upstream llama.cpp request when fired
    */
-  async pipe(payload: Record<string, unknown>, awaitToolCallCompletion: boolean): Promise<{ stream: PassThrough; recoveryCount: number }> {
+  async pipe(payload: Record<string, unknown>, awaitToolCallCompletion: boolean, signal?: AbortSignal): Promise<{ stream: PassThrough; recoveryCount: number }> {
     const output = new PassThrough();
     let recoveryCount = 0;
 
-    const upstreamStream = await this.forwarder.chatCompletionStream(payload);
-    recoveryCount = await this.processStream(upstreamStream, output, payload, awaitToolCallCompletion);
+    const upstreamStream = await this.forwarder.chatCompletionStream(payload, signal);
+    recoveryCount = await this.processStream(upstreamStream, output, payload, awaitToolCallCompletion, signal);
 
     return { stream: output, recoveryCount };
   }
@@ -57,8 +58,9 @@ export class StreamBufferService {
    * @param output - passthrough stream to write processed SSE to
    * @param payload - original request payload for recovery retry
    * @param awaitToolCallCompletion - whether to buffer tool-call deltas
+   * @param signal - optional AbortSignal; destroys both streams when fired
    */
-  private async processStream(upstream: Readable, output: PassThrough, payload: Record<string, unknown>, awaitToolCallCompletion: boolean): Promise<number> {
+  private async processStream(upstream: Readable, output: PassThrough, payload: Record<string, unknown>, awaitToolCallCompletion: boolean, signal?: AbortSignal): Promise<number> {
     const toolCallBuffers: Map<number, { id?: string; type?: string; name?: string; arguments: string }> = new Map();
     let accumulatedReasoningContent = '';
     let accumulatedContent = '';
@@ -67,6 +69,12 @@ export class StreamBufferService {
 
     return new Promise((resolve, reject) => {
       let buffer = '';
+
+      signal?.addEventListener('abort', () => {
+        upstream.destroy();
+        output.destroy();
+        resolve(0);
+      });
 
       upstream.on('data', (chunk: Buffer) => {
         buffer += chunk.toString('utf8');

@@ -27,12 +27,14 @@ export class LlamaForwarderService {
   /**
    * Sends a non-streaming chat completion request to llama.cpp.
    * @param payload - OpenAI-compatible chat completion body
+   * @param signal - optional AbortSignal to cancel the request
    */
-  async chatCompletion(payload: Record<string, unknown>): Promise<unknown> {
+  async chatCompletion(payload: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const res = await fetch(`${LLAMA_BASE_URL}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...payload, stream: false }),
+      signal,
     });
     if (!res.ok) {
       const text = await res.text();
@@ -44,18 +46,22 @@ export class LlamaForwarderService {
   /**
    * Sends a streaming chat completion request to llama.cpp and returns a Node Readable stream of SSE bytes.
    * @param payload - OpenAI-compatible chat completion body
+   * @param signal - optional AbortSignal to cancel the request and destroy the returned stream
    */
-  async chatCompletionStream(payload: Record<string, unknown>): Promise<Readable> {
+  async chatCompletionStream(payload: Record<string, unknown>, signal?: AbortSignal): Promise<Readable> {
     const res = await fetch(`${LLAMA_BASE_URL}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...payload, stream: true }),
+      signal,
     });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`llama.cpp stream error: ${res.status} ${text}`);
     }
-    return Readable.fromWeb(res.body as any);
+    const readable = Readable.fromWeb(res.body as any);
+    signal?.addEventListener('abort', () => readable.destroy());
+    return readable;
   }
 
   /**

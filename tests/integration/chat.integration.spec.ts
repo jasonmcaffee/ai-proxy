@@ -243,7 +243,60 @@ describe('Integration — chat completions (requires proxy on :3001 and llama.cp
     }, 60000);
   });
 
-  describe('I9 — disableThinking suppresses reasoning_content', () => {
+  describe('I9 — abort signal propagation', () => {
+    it('aborts a non-streaming request before llama.cpp responds', async () => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 50);
+
+      await expect(
+        fetch(`${BASE_URL}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: 'Write a very long detailed essay of at least 2000 words about the history of computing.' }],
+            model: 'local-model',
+            temperature: 0.1,
+            disableThinking: true,
+          }),
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow(/abort/i);
+    }, 15000);
+
+    it('aborts a streaming request mid-stream and proxy remains healthy', async () => {
+      const controller = new AbortController();
+
+      const response = await fetch(`${BASE_URL}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'Count from 1 to 100.' }],
+          model: 'local-model',
+          temperature: 0.1,
+          stream: true,
+          disableThinking: true,
+        }),
+        signal: controller.signal,
+      });
+
+      expect(response.ok).toBe(true);
+      const reader = response.body!.getReader();
+
+      // Read first chunk to confirm the stream started
+      const { done } = await reader.read();
+      expect(done).toBe(false);
+
+      // Cancel the reader (closes the connection) and abort the signal
+      await reader.cancel();
+      controller.abort();
+
+      // Verify the proxy is still healthy after the abort
+      const healthResponse = await fetch(`${BASE_URL}/v1/models`);
+      expect(healthResponse.ok).toBe(true);
+    }, 30000);
+  });
+
+  describe('I10 — disableThinking suppresses reasoning_content', () => {
     it('returns blank reasoning_content when disableThinking=true', async () => {
       const result = await chatApi.createCompletion({
         messages: [{ role: 'user', content: 'Say the single word: hello' }],

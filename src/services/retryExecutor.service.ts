@@ -19,14 +19,15 @@ export class RetryExecutorService {
   /**
    * Invokes a non-streaming chat completion with retry + reasoning-quirk recovery.
    * @param payload - OpenAI-compatible chat completion request body
+   * @param signal - optional AbortSignal to cancel the request; aborted requests are not retried
    */
-  async invoke(payload: Record<string, unknown>): Promise<unknown> {
+  async invoke(payload: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const messages = [...(payload.messages as unknown[])];
     let lastErr: unknown;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const completion = await this.forwarder.chatCompletion({ ...payload, messages }) as any;
+        const completion = await this.forwarder.chatCompletion({ ...payload, messages }, signal) as any;
         const msg = completion?.choices?.[0]?.message;
 
         if (!msg) {
@@ -52,6 +53,7 @@ export class RetryExecutorService {
 
         return completion;
       } catch (e) {
+        if (signal?.aborted) throw e;
         lastErr = e;
       }
 
