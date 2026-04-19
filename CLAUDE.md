@@ -18,7 +18,7 @@ Manually editing the spec bypasses code generation and breaks the guarantee that
 
 Use these npm scripts to manage it:
 
-- **Start (dev):** `npx ts-node -r tsconfig-paths/register src/main.ts &` (background) or `npm run start:dev` (watch mode, port 4142)
+- **Start (dev):** `PORT=4142 npx ts-node -r tsconfig-paths/register src/main.ts &` (background) or `npm run start:dev` (watch mode, port 4142)
 - **Stop (dev):** `npm run stop-service` — kills whatever process is listening on port 4142
 - **Stop (prod):** `npm run stop-service-prod` — kills whatever process is listening on port 4141
 - **Deploy:** `npm run build-and-deploy` — builds and copies files to `C:\jason\dev\prod\ai-proxy` (does not stop/start the service)
@@ -29,3 +29,13 @@ powershell -Command "Stop-Process -Id (Get-NetTCPConnection -LocalPort 4142 -Sta
 ```
 
 If the app is already running when you start a new instance (e.g., to regenerate the spec), it will still write `src/openapi-spec.json` before hitting the `EADDRINUSE` error — so the spec gets updated even on a failed start.
+
+## Integration Tests
+
+Integration tests run against the **dev server on port 4142** (not prod). Before running `npm run test:integration`, start the dev server:
+
+```
+PORT=4142 npx ts-node -r tsconfig-paths/register src/main.ts &
+```
+
+The default `PROXY_URL` in the integration tests is `http://localhost:4142`. Tests also require llama.cpp running on port 8080 (`LLAMA_BASE_URL`, default `http://localhost:8080`).

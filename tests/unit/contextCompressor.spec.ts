@@ -1,17 +1,17 @@
 import { Test } from '@nestjs/testing';
 import { ContextCompressorService } from '../../src/services/contextCompressor.service';
 import { LlamaForwarderService } from '../../src/services/llamaForwarder.service';
-import { ChatMessage } from '../../src/services/llamaForwarder.service';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
-const makeImageMessage = (role = 'user'): ChatMessage => ({
-  role,
+const makeImageMessage = (role = 'user'): ChatCompletionMessageParam => ({
+  role: role as any,
   content: [
     { type: 'image_url', image_url: { url: 'data:image/png;base64,abc123' } },
     { type: 'text', text: 'What is in this image?' },
-  ],
+  ] as any,
 });
 
-const makeTextMessage = (role: string, content: string): ChatMessage => ({ role, content });
+const makeTextMessage = (role: string, content: string): ChatCompletionMessageParam => ({ role: role as any, content });
 
 describe('ContextCompressorService', () => {
   let service: ContextCompressorService;
@@ -50,7 +50,7 @@ describe('ContextCompressorService', () => {
     it('clears older image messages, keeps newest', async () => {
       mockForwarder.countTokens.mockResolvedValue(50);
 
-      const messages: ChatMessage[] = [
+      const messages: ChatCompletionMessageParam[] = [
         makeTextMessage('user', 'first question'),
         makeImageMessage('user'),
         makeTextMessage('assistant', 'I see an image'),
@@ -76,7 +76,7 @@ describe('ContextCompressorService', () => {
         return callCount++ === 0 ? 1000 : 50;
       });
 
-      const messages: ChatMessage[] = [
+      const messages: ChatCompletionMessageParam[] = [
         makeTextMessage('user', 'old message 1'),
         makeTextMessage('assistant', 'old response 1'),
         makeTextMessage('user', 'recent message'),
@@ -93,7 +93,7 @@ describe('ContextCompressorService', () => {
         return callCount++ === 0 ? 500 : 50;
       });
 
-      const messages: ChatMessage[] = [
+      const messages: ChatCompletionMessageParam[] = [
         makeTextMessage('user', 'old'),
         {
           role: 'assistant',

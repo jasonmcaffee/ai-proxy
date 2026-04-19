@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Readable, PassThrough } from 'stream';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import type { LlamaParamsStreaming } from '../models/openaiExtensions';
 import { LlamaForwarderService } from './llamaForwarder.service';
 import { parseSseLine, encodeSseLine, parseSseJson } from '../utils/sse';
 
@@ -38,16 +40,16 @@ export class StreamBufferService {
 
   /**
    * Creates a passthrough stream that pipes llama.cpp SSE output to the client.
-   * @param payload - OpenAI-compatible chat completion request body
+   * @param params - typed streaming chat completion params
    * @param awaitToolCallCompletion - if true, buffer tool-call deltas into one chunk
    * @param signal - optional AbortSignal; aborts the upstream llama.cpp request when fired
    */
-  async pipe(payload: Record<string, unknown>, awaitToolCallCompletion: boolean, signal?: AbortSignal): Promise<{ stream: PassThrough; recoveryCount: number }> {
+  async pipe(params: LlamaParamsStreaming, awaitToolCallCompletion: boolean, signal?: AbortSignal): Promise<{ stream: PassThrough; recoveryCount: number }> {
     const output = new PassThrough();
     let recoveryCount = 0;
 
-    const upstreamStream = await this.forwarder.chatCompletionStream(payload, signal);
-    recoveryCount = await this.processStream(upstreamStream, output, payload, awaitToolCallCompletion, signal);
+    const upstreamStream = await this.forwarder.chatCompletionStream(params, signal);
+    recoveryCount = await this.processStream(upstreamStream, output, params, awaitToolCallCompletion, signal);
 
     return { stream: output, recoveryCount };
   }
@@ -56,11 +58,11 @@ export class StreamBufferService {
    * Processes an upstream SSE stream, optionally buffering tool calls, and pipes to output.
    * @param upstream - readable stream of SSE bytes from llama.cpp
    * @param output - passthrough stream to write processed SSE to
-   * @param payload - original request payload for recovery retry
+   * @param params - original streaming params for recovery retry
    * @param awaitToolCallCompletion - whether to buffer tool-call deltas
    * @param signal - optional AbortSignal; destroys both streams when fired
    */
-  private async processStream(upstream: Readable, output: PassThrough, payload: Record<string, unknown>, awaitToolCallCompletion: boolean, signal?: AbortSignal): Promise<number> {
+  private async processStream(upstream: Readable, output: PassThrough, params: LlamaParamsStreaming, awaitToolCallCompletion: boolean, signal?: AbortSignal): Promise<number> {
     const toolCallBuffers: Map<number, { id?: string; type?: string; name?: string; arguments: string }> = new Map();
     let accumulatedReasoningContent = '';
     let accumulatedContent = '';
@@ -138,7 +140,7 @@ export class StreamBufferService {
         if (onlyReasoning && lastChunkTemplate) {
           this.logger.warn('Stream ended with reasoning-only content, attempting recovery...');
           try {
-            const recovery = await this.attemptStreamRecovery(payload, accumulatedReasoningContent, output);
+            const recovery = await this.attemptStreamRecovery(params, accumulatedReasoningContent, output);
             output.write(encodeSseLine('[DONE]'));
             output.end();
             resolve(recovery ? 1 : 0);
@@ -165,16 +167,16 @@ export class StreamBufferService {
 
   /**
    * Retries the request with a recovery user message appended and pipes new stream to output.
-   * @param payload - original request payload
+   * @param params - original streaming params
    * @param reasoningContent - accumulated reasoning content from failed stream
    * @param output - stream to write recovery output to
    */
-  private async attemptStreamRecovery(payload: Record<string, unknown>, reasoningContent: string, output: PassThrough): Promise<boolean> {
+  private async attemptStreamRecovery(params: LlamaParamsStreaming, reasoningContent: string, output: PassThrough): Promise<boolean> {
     const recoveryText = `You reasoned but did not respond with content or a tool call. Here is your reasoning: ${reasoningContent}. Please continue.`;
-    const messages = [...(payload.messages as unknown[]), { role: 'user', content: recoveryText }];
-    const recoveryPayload = { ...payload, messages };
+    const messages: ChatCompletionMessageParam[] = [...params.messages, { role: 'user' as const, content: recoveryText }];
+    const recoveryParams: LlamaParamsStreaming = { ...params, messages, stream: true };
 
-    const upstream = await this.forwarder.chatCompletionStream(recoveryPayload);
+    const upstream = await this.forwarder.chatCompletionStream(recoveryParams);
 
     return new Promise((resolve) => {
       let buffer = '';

@@ -72,7 +72,7 @@ describe('StreamBufferService', () => {
       ];
       mockForwarder.chatCompletionStream.mockResolvedValue(makeStream(lines));
 
-      const { stream } = await service.pipe({ messages: [] }, false);
+      const { stream } = await service.pipe({ model: 'local-model', messages: [], stream: true }, false);
       const chunks = await collectStream(stream);
       const joined = chunks.join('');
 
@@ -97,7 +97,7 @@ describe('StreamBufferService', () => {
       ];
       mockForwarder.chatCompletionStream.mockResolvedValue(makeStream(lines));
 
-      const { stream } = await service.pipe({ messages: [] }, false);
+      const { stream } = await service.pipe({ model: 'local-model', messages: [], stream: true }, false);
       const chunks = await collectStream(stream);
       const parsed = parseDataLines(chunks);
 
@@ -122,7 +122,7 @@ describe('StreamBufferService', () => {
       ];
       mockForwarder.chatCompletionStream.mockResolvedValue(makeStream(lines));
 
-      const { stream } = await service.pipe({ messages: [] }, true);
+      const { stream } = await service.pipe({ model: 'local-model', messages: [], stream: true }, true);
       const chunks = await collectStream(stream);
       const parsed = parseDataLines(chunks);
 

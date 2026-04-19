@@ -7,7 +7,9 @@
   "scripts": {
     "build": "tsc"
   },
-  "dependencies": {},
+  "dependencies": {
+    "openai": "^6.0.0"
+  },
   "devDependencies": {
     "typescript": "^5.7.3"
   }

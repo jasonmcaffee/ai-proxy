@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import type { LlamaParamsNonStreaming } from '../models/openaiExtensions';
 import { LlamaForwarderService } from './llamaForwarder.service';
 
 const RETRY_BASE_DELAY_MS = 2000;
@@ -18,16 +20,16 @@ export class RetryExecutorService {
 
   /**
    * Invokes a non-streaming chat completion with retry + reasoning-quirk recovery.
-   * @param payload - OpenAI-compatible chat completion request body
+   * @param params - typed non-streaming chat completion params
    * @param signal - optional AbortSignal to cancel the request; aborted requests are not retried
    */
-  async invoke(payload: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
-    const messages = [...(payload.messages as unknown[])];
+  async invoke(params: LlamaParamsNonStreaming, signal?: AbortSignal): Promise<unknown> {
+    const messages: ChatCompletionMessageParam[] = [...params.messages];
     let lastErr: unknown;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const completion = await this.forwarder.chatCompletion({ ...payload, messages }, signal) as any;
+        const completion = await this.forwarder.chatCompletion({ ...params, messages }, signal);
         const msg = completion?.choices?.[0]?.message;
 
         if (!msg) {
@@ -35,7 +37,7 @@ export class RetryExecutorService {
           continue;
         }
 
-        const reasoningContent: string | undefined = msg.reasoning_content;
+        const reasoningContent: string | undefined = (msg as any).reasoning_content;
         const hasContent = typeof msg.content === 'string' && msg.content.trim().length > 0;
         const hasToolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
 
@@ -47,7 +49,7 @@ export class RetryExecutorService {
         if (reasoningContent?.trim() && !hasContent && !hasToolCalls) {
           this.logger.warn(`Attempt ${attempt}: reasoning-only response detected, recovering...`);
           const recoveryText = `You reasoned but did not respond with content or a tool call. Here is your reasoning: ${reasoningContent}. Please continue.`;
-          messages.push({ role: 'user', content: recoveryText });
+          messages.push({ role: 'user' as const, content: recoveryText });
           continue;
         }
 

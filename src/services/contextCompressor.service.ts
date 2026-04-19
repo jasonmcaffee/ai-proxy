@@ -1,10 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { LlamaForwarderService, ChatMessage } from './llamaForwarder.service';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import { LlamaForwarderService } from './llamaForwarder.service';
 import { CompressionOptionsDto } from '../models/compressionOptions.dto';
-import { estimateTokens } from '../utils/tokens';
 
 const ESTIMATED_TOKENS_PER_IMAGE_PART = 2000;
 const CHARS_PER_TOKEN = 4;
+
+/** Internal mutable view used only within this service */
+type MutableMessage = {
+  role: string;
+  content?: string | unknown[];
+  tool_calls?: unknown[];
+  tool_call_id?: string;
+};
 
 /**
  * Applies all built-in context compression strategies when enabled.
@@ -23,10 +31,10 @@ export class ContextCompressorService {
    * @param messages - the full message history to potentially compress
    * @param opts - compression options from the request
    */
-  async compress(messages: ChatMessage[], opts: CompressionOptionsDto | undefined): Promise<ChatMessage[]> {
+  async compress(messages: ChatCompletionMessageParam[], opts: CompressionOptionsDto | undefined): Promise<ChatCompletionMessageParam[]> {
     if (!opts?.enabled) return messages;
 
-    const history = messages.map(m => ({ ...m }));
+    const history = messages.map(m => ({ ...m })) as MutableMessage[];
 
     this.ensureOnlyOneImageInContext(history);
 
@@ -34,14 +42,14 @@ export class ContextCompressorService {
       await this.removeOlderMessagesUntilUnderLimit(history, opts.maxContextSize);
     }
 
-    return history;
+    return history as unknown as ChatCompletionMessageParam[];
   }
 
   /**
    * Clears image payloads from all but the most recent tool message that carries an image.
    * @param history - message array mutated in place
    */
-  private ensureOnlyOneImageInContext(history: ChatMessage[]): void {
+  private ensureOnlyOneImageInContext(history: MutableMessage[]): void {
     const imageIndices: number[] = [];
 
     for (let i = 0; i < history.length; i++) {
@@ -67,10 +75,10 @@ export class ContextCompressorService {
    * @param history - message array mutated in place
    * @param maxTokens - token budget
    */
-  private async removeOlderMessagesUntilUnderLimit(history: ChatMessage[], maxTokens: number): Promise<void> {
+  private async removeOlderMessagesUntilUnderLimit(history: MutableMessage[], maxTokens: number): Promise<void> {
     let tokenCount: number;
     try {
-      tokenCount = await this.forwarder.countTokens({ systemPrompt: '', messages: history, tools: [] });
+      tokenCount = await this.forwarder.countTokens({ systemPrompt: '', messages: history as unknown as ChatCompletionMessageParam[], tools: [] });
     } catch {
       tokenCount = this.estimateHistoryTokens(history);
     }
@@ -86,7 +94,7 @@ export class ContextCompressorService {
       removed++;
 
       try {
-        tokenCount = await this.forwarder.countTokens({ systemPrompt: '', messages: history, tools: [] });
+        tokenCount = await this.forwarder.countTokens({ systemPrompt: '', messages: history as unknown as ChatCompletionMessageParam[], tools: [] });
       } catch {
         tokenCount = this.estimateHistoryTokens(history);
       }
@@ -102,7 +110,7 @@ export class ContextCompressorService {
    * @param history - current message array
    * @param pairStart - index of last assistant→tool pair start, or null
    */
-  private canShiftFirst(history: ChatMessage[], pairStart: number | null): boolean {
+  private canShiftFirst(history: MutableMessage[], pairStart: number | null): boolean {
     if (history.length <= 1) return false;
     if (pairStart === null) return true;
     return pairStart > 0;
@@ -112,7 +120,7 @@ export class ContextCompressorService {
    * Finds the index of the last assistant message that is followed by a tool result.
    * @param history - message array to scan
    */
-  private findLastToolPairAssistantIndex(history: ChatMessage[]): number | null {
+  private findLastToolPairAssistantIndex(history: MutableMessage[]): number | null {
     for (let i = history.length - 2; i >= 0; i--) {
       const curr = history[i];
       const next = history[i + 1];
@@ -127,7 +135,7 @@ export class ContextCompressorService {
    * Returns true if a message carries an image payload in its content parts.
    * @param m - message to inspect
    */
-  private messageHasImage(m: ChatMessage): boolean {
+  private messageHasImage(m: MutableMessage): boolean {
     if (!m.content || typeof m.content === 'string') return false;
     const parts = m.content as Array<{ type: string; image_url?: unknown }>;
     return parts.some(p => p.type === 'image_url' && p.image_url);
@@ -137,7 +145,7 @@ export class ContextCompressorService {
    * Estimates total tokens for a message history using character heuristics.
    * @param history - messages to estimate
    */
-  private estimateHistoryTokens(history: ChatMessage[]): number {
+  private estimateHistoryTokens(history: MutableMessage[]): number {
     return history.reduce((sum, m) => {
       const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
       return sum + Math.ceil(content.length / CHARS_PER_TOKEN) + 4;

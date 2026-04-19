@@ -1,0 +1,408 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/v1/chat/completions": {
+      "post": {
+        "operationId": "create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatCompletionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCompletionResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Create a chat completion",
+        "tags": [
+          "ChatCompletions"
+        ]
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "operationId": "listModels",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsListResponse"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List available models",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/v1/images/generations": {
+      "post": {
+        "operationId": "generateImage",
+        "parameters": [],
+        "responses": {
+          "501": {
+            "description": "Not implemented"
+          }
+        },
+        "summary": "Image generation (not implemented — stub 501)",
+        "tags": [
+          "images"
+        ]
+      }
+    },
+    "/v1/audio/transcriptions": {
+      "post": {
+        "operationId": "transcribe",
+        "parameters": [],
+        "responses": {
+          "501": {
+            "description": "Not implemented"
+          }
+        },
+        "summary": "Speech to text transcription (not implemented — stub 501)",
+        "tags": [
+          "audio"
+        ]
+      }
+    },
+    "/v1/audio/speech": {
+      "post": {
+        "operationId": "speak",
+        "parameters": [],
+        "responses": {
+          "501": {
+            "description": "Not implemented"
+          }
+        },
+        "summary": "Text to speech (not implemented — stub 501)",
+        "tags": [
+          "audio"
+        ]
+      }
+    },
+    "/v1/videos/generations": {
+      "post": {
+        "operationId": "generateVideo",
+        "parameters": [],
+        "responses": {
+          "501": {
+            "description": "Not implemented"
+          }
+        },
+        "summary": "Video generation (not implemented — stub 501)",
+        "tags": [
+          "videos"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "AI Proxy API",
+    "description": "OpenAI-compatible proxy for llama.cpp with context compression, retry, and tool-call buffering",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "schemas": {
+      "FunctionCall": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "ToolCall": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "example": "function"
+          },
+          "function": {
+            "$ref": "#/components/schemas/FunctionCall"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "function"
+        ]
+      },
+      "ChatMessage": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "example": "user",
+            "description": "Role of the message sender: system, user, assistant, or tool"
+          },
+          "content": {
+            "type": "string",
+            "description": "Message content (string for text, array for multimodal/vision)"
+          },
+          "tool_calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolCall"
+            }
+          },
+          "tool_call_id": {
+            "type": "string"
+          },
+          "reasoning_content": {
+            "type": "string",
+            "description": "Reasoning content from llama.cpp thinking models (non-standard OpenAI field)"
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "ToolFunction": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "ToolDefinition": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "example": "function"
+          },
+          "function": {
+            "$ref": "#/components/schemas/ToolFunction"
+          }
+        },
+        "required": [
+          "type",
+          "function"
+        ]
+      },
+      "CompressionOptions": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable context compression before forwarding to llama.cpp"
+          },
+          "maxContextSize": {
+            "type": "number",
+            "description": "Maximum context size in tokens. Older messages are evicted when exceeded."
+          }
+        }
+      },
+      "ChatCompletionRequest": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            }
+          },
+          "model": {
+            "type": "string"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolDefinition"
+            }
+          },
+          "tool_choice": {
+            "type": "object"
+          },
+          "max_tokens": {
+            "type": "number"
+          },
+          "compressionOptions": {
+            "description": "Proxy extension: context compression options",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CompressionOptions"
+              }
+            ]
+          },
+          "awaitToolCallCompletion": {
+            "type": "boolean",
+            "description": "Proxy extension: buffer all tool-call deltas before sending to client (only meaningful when stream=true)"
+          },
+          "disableThinking": {
+            "type": "boolean",
+            "description": "Proxy extension: disable thinking/reasoning for llama.cpp models that support it (defaults to false)"
+          }
+        },
+        "required": [
+          "messages"
+        ]
+      },
+      "ChatChoice": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "number"
+          },
+          "message": {
+            "$ref": "#/components/schemas/ChatMessage"
+          },
+          "finish_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "message"
+        ]
+      },
+      "Usage": {
+        "type": "object",
+        "properties": {
+          "prompt_tokens": {
+            "type": "number"
+          },
+          "completion_tokens": {
+            "type": "number"
+          },
+          "total_tokens": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens"
+        ]
+      },
+      "ChatCompletionResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string",
+            "example": "chat.completion"
+          },
+          "created": {
+            "type": "number"
+          },
+          "model": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatChoice"
+            }
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "model",
+          "choices"
+        ]
+      },
+      "ModelObject": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "local-model"
+          },
+          "object": {
+            "type": "string",
+            "example": "model"
+          },
+          "created": {
+            "type": "number"
+          },
+          "owned_by": {
+            "type": "string",
+            "example": "llama.cpp"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "owned_by"
+        ]
+      },
+      "ModelsListResponse": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "example": "list"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelObject"
+            }
+          }
+        },
+        "required": [
+          "object",
+          "data"
+        ]
+      }
+    }
+  }
+}

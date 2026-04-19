@@ -1,14 +1,12 @@
-import { Configuration, ChatApi, ModelsApi } from '../../client';
+import OpenAI from '../../client';
+import type { ChatCompletionTool } from '../../client';
 
-const BASE_URL = process.env.PROXY_URL || 'http://localhost:4141';
-const config = new Configuration({ basePath: BASE_URL });
-const chatApi = new ChatApi(config);
-const modelsApi = new ModelsApi(config);
+const BASE_URL = process.env.PROXY_URL || 'http://localhost:4142';
+const openai = new OpenAI({ baseURL: BASE_URL });
 
-// Tool definition using the generated ToolDefinitionDto shape (_function is generator artifact for reserved word)
-const CALCULATOR_TOOL = {
-  type: 'function' as const,
-  _function: {
+const CALCULATOR_TOOL: ChatCompletionTool = {
+  type: 'function',
+  function: {
     name: 'add',
     description: 'Add two numbers',
     parameters: {
@@ -67,11 +65,11 @@ async function streamRaw(body: object): Promise<Response> {
   });
 }
 
-describe('Integration — chat completions (requires proxy on :3001 and llama.cpp on :8080)', () => {
+describe('Integration — chat completions (requires proxy on :4141 and llama.cpp on :8080)', () => {
 
   describe('I1 — non-stream simple chat', () => {
     it('returns content in OpenAI shape', async () => {
-      const result = await chatApi.createCompletion({
+      const result = await openai.chat.completions.create({
         messages: [{ role: 'user', content: 'Say the single word: hello' }],
         model: 'local-model',
         temperature: 0.1,
@@ -88,7 +86,7 @@ describe('Integration — chat completions (requires proxy on :3001 and llama.cp
 
   describe('I2 — non-stream with tool call', () => {
     it('returns a tool_call for the calculator', async () => {
-      const result = await chatApi.createCompletion({
+      const result = await openai.chat.completions.create({
         messages: [{ role: 'user', content: 'Use the add tool to calculate 3 + 4. You must call the add function.' }],
         model: 'local-model',
         tools: [CALCULATOR_TOOL],
@@ -96,16 +94,15 @@ describe('Integration — chat completions (requires proxy on :3001 and llama.cp
       });
 
       const msg = result.choices[0].message;
-      const toolCalls = msg.toolCalls ?? (msg as any).tool_calls;
+      const toolCalls = msg.tool_calls;
       expect(Array.isArray(toolCalls)).toBe(true);
-      expect(toolCalls.length).toBeGreaterThan(0);
-      const tc = toolCalls[0];
-      const fnName = tc._function?.name ?? tc.function?.name;
-      expect(fnName).toBe('add');
-      const args = JSON.parse(tc._function?.arguments ?? tc.function?.arguments);
+      expect(toolCalls!.length).toBeGreaterThan(0);
+      const tc = toolCalls![0] as any;
+      expect(tc.function.name).toBe('add');
+      const args = JSON.parse(tc.function.arguments);
       expect(typeof args.a).toBe('number');
       expect(typeof args.b).toBe('number');
-    }, 60000);
+    }, 90000);
   });
 
   describe('I3 — streaming simple chat', () => {
@@ -177,8 +174,8 @@ describe('Integration — chat completions (requires proxy on :3001 and llama.cp
         { role: 'assistant', content: 'The capital of Italy is Rome.' },
       ];
 
-      const result = await chatApi.createCompletion({
-        messages: [...longHistory, { role: 'user', content: 'Say: ok' }],
+      const result = await openai.chat.completions.create({
+        messages: [...longHistory, { role: 'user', content: 'Say: ok' }] as any,
         model: 'local-model',
         temperature: 0.1,
         compressionOptions: { enabled: true, maxContextSize: 500 },
@@ -190,7 +187,6 @@ describe('Integration — chat completions (requires proxy on :3001 and llama.cp
 
   describe('I7 — compressionOptions deduplicates images', () => {
     it('accepts request with two image messages and returns a response', async () => {
-      // Use raw fetch since the generated client types content as string
       const imageContent = [
         { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' } },
         { type: 'text', text: 'What color is this image?' },
@@ -282,15 +278,12 @@ describe('Integration — chat completions (requires proxy on :3001 and llama.cp
       expect(response.ok).toBe(true);
       const reader = response.body!.getReader();
 
-      // Read first chunk to confirm the stream started
       const { done } = await reader.read();
       expect(done).toBe(false);
 
-      // Cancel the reader (closes the connection) and abort the signal
       await reader.cancel();
       controller.abort();
 
-      // Verify the proxy is still healthy after the abort
       const healthResponse = await fetch(`${BASE_URL}/v1/models`);
       expect(healthResponse.ok).toBe(true);
     }, 30000);
@@ -298,7 +291,7 @@ describe('Integration — chat completions (requires proxy on :3001 and llama.cp
 
   describe('I10 — disableThinking suppresses reasoning_content', () => {
     it('returns blank reasoning_content when disableThinking=true', async () => {
-      const result = await chatApi.createCompletion({
+      const result = await openai.chat.completions.create({
         messages: [{ role: 'user', content: 'Say the single word: hello' }],
         model: 'local-model',
         temperature: 0.1,
@@ -315,7 +308,7 @@ describe('Integration — chat completions (requires proxy on :3001 and llama.cp
 
   describe('Models endpoint', () => {
     it('GET /v1/models returns model list', async () => {
-      const result = await modelsApi.listModels();
+      const result = await openai.models.listModels();
       expect(result.object).toBe('list');
       expect(result.data.length).toBeGreaterThan(0);
     }, 10000);

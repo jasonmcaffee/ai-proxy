@@ -42,7 +42,7 @@ describe('RetryExecutorService', () => {
       ]);
       service = await buildModule(mockForwarder as any);
 
-      const result = await service.invoke({ messages: [{ role: 'user', content: 'hi' }] }) as any;
+      const result = await service.invoke({ model: 'local-model', messages: [{ role: 'user', content: 'hi' }] }) as any;
       expect(result.choices[0].message.content).toBe('Hello!');
       expect(mockForwarder.chatCompletion).toHaveBeenCalledTimes(2);
     });
@@ -58,7 +58,7 @@ describe('RetryExecutorService', () => {
       ]);
       service = await buildModule(mockForwarder as any);
 
-      await expect(service.invoke({ messages: [{ role: 'user', content: 'hi' }] }))
+      await expect(service.invoke({ model: 'local-model', messages: [{ role: 'user', content: 'hi' }] }))
         .rejects.toThrow('500 Internal Server Error');
       expect(mockForwarder.chatCompletion).toHaveBeenCalledTimes(8);
 
@@ -74,7 +74,7 @@ describe('RetryExecutorService', () => {
       ]);
       service = await buildModule(mockForwarder as any);
 
-      const result = await service.invoke({ messages: [{ role: 'user', content: 'What is the answer?' }] }) as any;
+      const result = await service.invoke({ model: 'local-model', messages: [{ role: 'user', content: 'What is the answer?' }] }) as any;
       expect(result.choices[0].message.content).toBe('The answer is 42.');
 
       const secondCall = (mockForwarder.chatCompletion.mock.calls as any)[1][0] as any;
