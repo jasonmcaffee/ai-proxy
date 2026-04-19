@@ -15,6 +15,7 @@ Name | Type
 `maxTokens` | number
 `compressionOptions` | [CompressionOptionsDto](CompressionOptionsDto.md)
 `awaitToolCallCompletion` | boolean
+`disableThinking` | boolean
 
 ## Example
 
@@ -32,6 +33,7 @@ const example = {
   "maxTokens": null,
   "compressionOptions": null,
   "awaitToolCallCompletion": null,
+  "disableThinking": null,
 } satisfies ChatCompletionRequestDto
 
 console.log(example)

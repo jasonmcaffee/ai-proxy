@@ -24,11 +24,15 @@ export class ChatController {
   @ApiOperation({ summary: 'Create a chat completion' })
   @ApiResponse({ status: 200, type: ChatCompletionResponseDto })
   async createCompletion(@Body() dto: ChatCompletionRequestDto, @Req() req: Request, @Res() res: Response): Promise<void> {
-    const { compressionOptions, awaitToolCallCompletion, ...forwardPayload } = dto;
+    const { compressionOptions, awaitToolCallCompletion, disableThinking, ...forwardPayload } = dto;
 
     const compressedMessages = await this.compressor.compress(dto.messages as unknown as ChatMessage[], compressionOptions);
 
-    const payload = { ...forwardPayload, messages: compressedMessages } as Record<string, unknown>;
+    const payload = {
+      ...forwardPayload,
+      messages: compressedMessages,
+      ...(disableThinking ? { chat_template_kwargs: { enable_thinking: false } } : {}),
+    } as Record<string, unknown>;
 
     if (dto.stream) {
       await this.handleStream(payload, awaitToolCallCompletion ?? false, res);

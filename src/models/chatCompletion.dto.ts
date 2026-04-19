@@ -102,6 +102,11 @@ export class ChatCompletionRequestDto {
   @IsOptional()
   @IsBoolean()
   awaitToolCallCompletion?: boolean;
+
+  @ApiPropertyOptional({ description: 'Proxy extension: disable thinking/reasoning for llama.cpp models that support it (defaults to false)' })
+  @IsOptional()
+  @IsBoolean()
+  disableThinking?: boolean;
 }
 
 export class UsageDto {

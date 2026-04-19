@@ -277,6 +277,10 @@
           "awaitToolCallCompletion": {
             "type": "boolean",
             "description": "Proxy extension: buffer all tool-call deltas before sending to client (only meaningful when stream=true)"
+          },
+          "disableThinking": {
+            "type": "boolean",
+            "description": "Proxy extension: disable thinking/reasoning for llama.cpp models that support it (defaults to false)"
           }
         },
         "required": [

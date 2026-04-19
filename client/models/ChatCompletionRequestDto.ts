@@ -95,6 +95,12 @@ export interface ChatCompletionRequestDto {
      * @memberof ChatCompletionRequestDto
      */
     awaitToolCallCompletion?: boolean;
+    /**
+     * Proxy extension: disable thinking/reasoning for llama.cpp models that support it (defaults to false)
+     * @type {boolean}
+     * @memberof ChatCompletionRequestDto
+     */
+    disableThinking?: boolean;
 }
 
 /**
@@ -124,6 +130,7 @@ export function ChatCompletionRequestDtoFromJSONTyped(json: any, ignoreDiscrimin
         'maxTokens': json['max_tokens'] == null ? undefined : json['max_tokens'],
         'compressionOptions': json['compressionOptions'] == null ? undefined : CompressionOptionsDtoFromJSON(json['compressionOptions']),
         'awaitToolCallCompletion': json['awaitToolCallCompletion'] == null ? undefined : json['awaitToolCallCompletion'],
+        'disableThinking': json['disableThinking'] == null ? undefined : json['disableThinking'],
     };
 }
 
@@ -147,6 +154,7 @@ export function ChatCompletionRequestDtoToJSONTyped(value?: ChatCompletionReques
         'max_tokens': value['maxTokens'],
         'compressionOptions': CompressionOptionsDtoToJSON(value['compressionOptions']),
         'awaitToolCallCompletion': value['awaitToolCallCompletion'],
+        'disableThinking': value['disableThinking'],
     };
 }
 

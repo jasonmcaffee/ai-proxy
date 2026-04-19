@@ -243,6 +243,23 @@ describe('Integration — chat completions (requires proxy on :3001 and llama.cp
     }, 60000);
   });
 
+  describe('I9 — disableThinking suppresses reasoning_content', () => {
+    it('returns blank reasoning_content when disableThinking=true', async () => {
+      const result = await chatApi.createCompletion({
+        messages: [{ role: 'user', content: 'Say the single word: hello' }],
+        model: 'local-model',
+        temperature: 0.1,
+        disableThinking: true,
+      });
+
+      expect(result.choices).toBeDefined();
+      expect(result.choices.length).toBeGreaterThan(0);
+      const msg = result.choices[0].message as any;
+      const reasoningContent = msg.reasoning_content ?? msg.reasoningContent;
+      expect(!reasoningContent || reasoningContent.trim() === '').toBe(true);
+    }, 60000);
+  });
+
   describe('Models endpoint', () => {
     it('GET /v1/models returns model list', async () => {
       const result = await modelsApi.listModels();
