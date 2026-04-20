@@ -6,7 +6,8 @@ import { writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(require('express').json({ limit: '10mb' }));
 
   app.enableCors({
     origin: '*',
