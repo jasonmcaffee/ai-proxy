@@ -3,7 +3,7 @@ import { Workflow } from './zibZitWorkflow';
 
 const COMFYUI_BASE_URL = process.env.COMFYUI_BASE_URL ?? 'http://localhost:8083';
 const POLL_INTERVAL_MS = 2000;
-const POLL_TIMEOUT_MS = 300_000;
+const POLL_TIMEOUT_MS = 3_600_000; // 1 hour
 
 interface PromptResponse { prompt_id: string; number: number }
 interface HistoryImage { filename: string; subfolder: string; type: string }
@@ -28,12 +28,35 @@ async function submitWorkflow(workflow: Workflow): Promise<PromptResponse> {
 }
 
 /**
- * Polls /history/{promptId} every 2 seconds until the job produces output images or times out.
- * @param promptId - the prompt ID returned by submitWorkflow
+ * Cancels a ComfyUI job: removes it from the pending queue and interrupts it if currently running.
+ * Mirrors the ang project's cancel route which calls both deleteFromQueue and interrupt.
+ * @param promptId - the prompt ID to cancel
  */
-async function pollUntilComplete(promptId: string): Promise<HistoryEntry> {
+async function cancelComfyJob(promptId: string): Promise<void> {
+  await Promise.allSettled([
+    fetch(`${COMFYUI_BASE_URL}/queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delete: [promptId] }),
+    }),
+    fetch(`${COMFYUI_BASE_URL}/interrupt`, { method: 'POST' }),
+  ]);
+  console.log(`[ComfyUIClientService] cancelled promptId=${promptId}`);
+}
+
+/**
+ * Polls /history/{promptId} every 2 seconds until the job produces output images, times out, or is aborted.
+ * On abort, calls cancelComfyJob to remove the job from ComfyUI's queue/execution.
+ * @param promptId - the prompt ID returned by submitWorkflow
+ * @param signal - optional AbortSignal; triggers ComfyUI cancellation when fired
+ */
+async function pollUntilComplete(promptId: string, signal?: AbortSignal): Promise<HistoryEntry> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
+    if (signal?.aborted) {
+      await cancelComfyJob(promptId);
+      throw new Error('Image generation aborted by client');
+    }
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     const res = await fetch(`${COMFYUI_BASE_URL}/history/${promptId}`);
     if (!res.ok) continue;
@@ -76,12 +99,14 @@ async function fetchFirstImageAsBase64(entry: HistoryEntry): Promise<string> {
 export class ComfyUIClientService {
   /**
    * Submits a workflow, waits for completion, and returns the first output image as a base64 string.
+   * If the AbortSignal fires during polling, the ComfyUI job is cancelled before throwing.
    * @param workflow - ComfyUI workflow to run
+   * @param signal - optional AbortSignal; cancels the ComfyUI job if the client disconnects
    */
-  async runWorkflowAndGetImage(workflow: Workflow): Promise<string> {
+  async runWorkflowAndGetImage(workflow: Workflow, signal?: AbortSignal): Promise<string> {
     const { prompt_id } = await submitWorkflow(workflow);
     console.log(`[ComfyUIClientService] submitted promptId=${prompt_id}`);
-    const entry = await pollUntilComplete(prompt_id);
+    const entry = await pollUntilComplete(prompt_id, signal);
     console.log(`[ComfyUIClientService] completed promptId=${prompt_id}`);
     return fetchFirstImageAsBase64(entry);
   }

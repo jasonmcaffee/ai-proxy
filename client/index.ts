@@ -96,13 +96,16 @@ class Images {
   /**
    * Generates an image using the ai-proxy ComfyUI backend and returns the result in OpenAI format.
    * Always returns b64_json. negativePrompt is a proxy extension not in the official OpenAI SDK.
+   * Aborting the signal closes the HTTP connection, which triggers the proxy to cancel the ComfyUI job.
    * @param params - image generation params; negativePrompt is a proxy extension
+   * @param opts - optional request options including AbortSignal
    */
-  async generate(params: ImageGenerateParams): Promise<ImagesResponse> {
+  async generate(params: ImageGenerateParams, opts?: RequestOpts): Promise<ImagesResponse> {
     const res = await fetch(`${this.baseURL}/v1/images/generations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
+      signal: opts?.signal,
     });
     if (!res.ok) {
       const text = await res.text();

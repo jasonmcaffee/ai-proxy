@@ -28,6 +28,27 @@ function decodeBase64Image(b64: string): Buffer {
 }
 
 /**
+ * Polls the ComfyUI /queue endpoint every 500ms until both pending and running counts are 0,
+ * or until the timeout elapses. Returns true if the queue emptied in time.
+ * @param comfyBaseUrl - ComfyUI base URL (e.g. http://localhost:8083)
+ * @param timeoutMs - max time to wait in milliseconds
+ */
+async function pollUntilQueueEmpty(comfyBaseUrl: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 500));
+    try {
+      const res = await fetch(`${comfyBaseUrl}/queue`);
+      if (!res.ok) continue;
+      const q: any = await res.json();
+      const total = (q.queue_pending ?? []).length + (q.queue_running ?? []).length;
+      if (total === 0) return true;
+    } catch { /* keep polling */ }
+  }
+  return false;
+}
+
+/**
  * Returns true if the buffer starts with a known image magic number (PNG or JPEG).
  * @param buf - buffer containing image bytes
  */
@@ -100,6 +121,29 @@ describe('Integration — image generation (requires proxy on :4142 and ComfyUI 
       expect(buf.length).toBeGreaterThan(1000);
       saveImage(result.data[0].b64_json!, 'im4-sunset-ocean.png');
     }, 300000);
+  });
+
+  describe('IM5 — client abort cancels the ComfyUI job', () => {
+    it('rejects when abort signal fires and leaves the proxy healthy', async () => {
+      const controller = new AbortController();
+      // Abort after 5s — enough time for ComfyUI to receive the job but not finish it
+      setTimeout(() => controller.abort(), 5000);
+
+      await expect(
+        openai.images.generate(
+          { prompt: 'a sprawling futuristic cityscape with neon lights and flying cars' },
+          { signal: controller.signal },
+        ),
+      ).rejects.toThrow();
+
+      // Poll ComfyUI queue until empty (cancel+interrupt can take a few seconds to propagate)
+      const queueClearedInTime = await pollUntilQueueEmpty('http://localhost:8083', 15000);
+      expect(queueClearedInTime).toBe(true);
+
+      // Verify the proxy itself is still healthy
+      const models = await openai.models.listModels();
+      expect(models.data.length).toBeGreaterThan(0);
+    }, 30000);
   });
 
 });

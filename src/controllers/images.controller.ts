@@ -1,11 +1,13 @@
-import { Body, Controller, HttpStatus, Post, Res } from '@nestjs/common';
+import { Body, Controller, HttpStatus, Post, Req, Res } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { ImageGenerationRequestDto, ImageGenerationResponseDto } from '../models/imageCreator/imageCreation.dto';
 import { ImageCreatorService } from '../services/imageCreator/imageCreator.service';
 
 /**
  * Handles POST /v1/images/generations — OpenAI-compatible image generation via ComfyUI.
+ * Forwards an AbortSignal derived from the HTTP connection lifetime so that client disconnects
+ * trigger ComfyUI job cancellation (deleteFromQueue + interrupt).
  */
 @ApiTags('images')
 @Controller('v1/images')
@@ -16,9 +18,12 @@ export class ImagesController {
   @ApiOperation({ summary: 'Generate an image using the zib-zit-moody ComfyUI workflow' })
   @ApiResponse({ status: 200, type: ImageGenerationResponseDto })
   @ApiResponse({ status: 500, description: 'ComfyUI unavailable or generation failed' })
-  async generateImage(@Body() dto: ImageGenerationRequestDto, @Res() res: Response): Promise<void> {
+  async generateImage(@Body() dto: ImageGenerationRequestDto, @Req() req: Request, @Res() res: Response): Promise<void> {
+    const abortController = new AbortController();
+    req.on('close', () => abortController.abort());
+
     try {
-      const result = await this.imageCreator.generateImages(dto);
+      const result = await this.imageCreator.generateImages(dto, abortController.signal);
       res.status(HttpStatus.OK).json(result);
     } catch (e: any) {
       console.error('[ImagesController] generateImage error:', e?.message ?? e);

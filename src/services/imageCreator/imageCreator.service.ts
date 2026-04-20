@@ -38,14 +38,16 @@ export class ImageCreatorService {
 
   /**
    * Generates an image using the zib-zit-moody ComfyUI workflow and returns it as b64_json.
+   * If the AbortSignal fires, the in-flight ComfyUI job is cancelled before throwing.
    * @param dto - OpenAI-compatible image generation request, plus optional negativePrompt extension
+   * @param signal - optional AbortSignal forwarded from the HTTP request lifecycle
    */
-  async generateImages(dto: ImageGenerationRequestDto): Promise<ImageGenerationResponseDto> {
+  async generateImages(dto: ImageGenerationRequestDto, signal?: AbortSignal): Promise<ImageGenerationResponseDto> {
     const workflow = resolveWorkflow(dto.model);
     console.log(`[ImageCreatorService] generating image, workflow=${workflow}, prompt="${dto.prompt.slice(0, 80)}"`);
 
     const comfyWorkflow = buildWorkflow(dto);
-    const b64Image = await this.comfyUIClient.runWorkflowAndGetImage(comfyWorkflow);
+    const b64Image = await this.comfyUIClient.runWorkflowAndGetImage(comfyWorkflow, signal);
 
     return {
       created: Math.floor(Date.now() / 1000),
