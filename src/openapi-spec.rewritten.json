@@ -59,12 +59,32 @@
       "post": {
         "operationId": "generateImage",
         "parameters": [],
-        "responses": {
-          "501": {
-            "description": "Not implemented"
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageGenerationRequest"
+              }
+            }
           }
         },
-        "summary": "Image generation (not implemented — stub 501)",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageGenerationResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "ComfyUI unavailable or generation failed"
+          }
+        },
+        "summary": "Generate an image using the zib-zit-moody ComfyUI workflow",
         "tags": [
           "images"
         ]
@@ -400,6 +420,91 @@
         },
         "required": [
           "object",
+          "data"
+        ]
+      },
+      "ImageGenerationRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Text prompt for image generation"
+          },
+          "negativePrompt": {
+            "type": "string",
+            "description": "Proxy extension: negative prompt for things to avoid in the image"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model name (currently always maps to zib-zit-moody workflow)"
+          },
+          "n": {
+            "type": "number",
+            "description": "Number of images to generate (currently only 1 is supported)",
+            "example": 1
+          },
+          "size": {
+            "type": "string",
+            "description": "Image size as WxH string",
+            "example": "1024x1024"
+          },
+          "response_format": {
+            "type": "string",
+            "description": "Response format",
+            "example": "b64_json",
+            "enum": [
+              "url",
+              "b64_json"
+            ]
+          },
+          "quality": {
+            "type": "string",
+            "description": "Image quality hint (ignored, passed through)",
+            "example": "standard"
+          },
+          "style": {
+            "type": "string",
+            "description": "Image style hint (ignored, passed through)",
+            "example": "vivid"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      },
+      "ImageData": {
+        "type": "object",
+        "properties": {
+          "b64_json": {
+            "type": "string",
+            "description": "Base64-encoded image data"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL of the generated image"
+          },
+          "revised_prompt": {
+            "type": "string",
+            "description": "The revised prompt used for generation"
+          }
+        }
+      },
+      "ImageGenerationResponse": {
+        "type": "object",
+        "properties": {
+          "created": {
+            "type": "number",
+            "description": "Unix timestamp of when the request was made"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImageData"
+            }
+          }
+        },
+        "required": [
+          "created",
           "data"
         ]
       }

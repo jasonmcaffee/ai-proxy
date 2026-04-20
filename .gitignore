@@ -3,3 +3,4 @@ ai-proxy.iml
 node_modules
 .env
 dist
+tests/integration/results

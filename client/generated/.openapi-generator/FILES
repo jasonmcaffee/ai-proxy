@@ -1,4 +1,3 @@
-.openapi-generator-ignore
 apis/AudioApi.ts
 apis/ChatCompletionsApi.ts
 apis/ImagesApi.ts
@@ -13,6 +12,9 @@ docs/ChatCompletionsApi.md
 docs/ChatMessage.md
 docs/CompressionOptions.md
 docs/FunctionCall.md
+docs/ImageData.md
+docs/ImageGenerationRequest.md
+docs/ImageGenerationResponse.md
 docs/ImagesApi.md
 docs/ModelObject.md
 docs/ModelsApi.md
@@ -29,6 +31,9 @@ models/ChatCompletionResponse.ts
 models/ChatMessage.ts
 models/CompressionOptions.ts
 models/FunctionCall.ts
+models/ImageData.ts
+models/ImageGenerationRequest.ts
+models/ImageGenerationResponse.ts
 models/ModelObject.ts
 models/ModelsListResponse.ts
 models/ToolCall.ts

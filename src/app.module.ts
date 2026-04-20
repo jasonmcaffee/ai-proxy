@@ -10,6 +10,8 @@ import { ContextCompressorService } from './services/contextCompressor.service';
 import { RetryExecutorService } from './services/retryExecutor.service';
 import { StreamBufferService } from './services/streamBuffer.service';
 import { StubForwarderService } from './services/stubForwarder.service';
+import { ImageCreatorService } from './services/imageCreator/imageCreator.service';
+import { ComfyUIClientService } from './services/imageCreator/comfyUIClient.service';
 
 @Module({
   imports: [],
@@ -27,6 +29,8 @@ import { StubForwarderService } from './services/stubForwarder.service';
     RetryExecutorService,
     StreamBufferService,
     StubForwarderService,
+    ImageCreatorService,
+    ComfyUIClientService,
   ],
 })
 export class AppModule {}

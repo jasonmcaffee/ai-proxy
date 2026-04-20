@@ -7,7 +7,7 @@ import { join } from 'path';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
-  app.use(require('express').json({ limit: '10mb' }));
+  app.use(require('express').json({ limit: '500mb' }));
 
   app.enableCors({
     origin: '*',

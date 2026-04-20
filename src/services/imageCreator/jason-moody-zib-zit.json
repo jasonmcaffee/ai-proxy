@@ -1,0 +1,370 @@
+{
+  "39": {
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "lumina2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "40": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "42": {
+    "inputs": {
+      "conditioning": [
+        "45",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "ConditioningZeroOut"
+    }
+  },
+  "45": {
+    "inputs": {
+      "text": "m4ymodel.\n<qualities>\nFilm photography, the photo has a distinct, obvious film grain texture..\nHyper realistic.\n</qualities>\n<environment>\nSetting: Indoor, a retro candy shop arcade.\n</environment>\n<m4ymodel>\nshe has a playful grin.\nher abdominal muscles show because she is so thin.\nher mid section is long and thin. .\nshe is very tall (5'10\" - 6') with a extremely thin. her waist is very small, and her stomach is toned with no body fat.\n\nshe has very thick and full lips lips.\nshe is 18 years old, female, Caucasian.\n</m4ymodel>\n<m4ymodel-clothing>\nm4ymodel is completely nude.\n- Jewelry: A colorful beaded necklace.\n</m4ymodel-clothing>\n<dan>\nhe is 23 years old, male.\n</dan>\n\n<position>\nThe background items are of less importance than the placement of the people in the photo.\nDan is standing on the left side of the image, and is visible from the waist down.\nm4ymodel is sitting on the ground, with her upper body erect and straight up.\nDan is standing next to m4ymodel on the left, with his left leg pressed against her right shoulder.\nDan is visible from the chest down.\nDan's waist is next to m4ymodel's face.\nDan's face is not visible.\nm4ymodel's mouth is open and tongue is out.\nm4ymodel is licking the tip of Dan's penis.\nm4ymodel torso is turned towards Dan.\nm4ymodel's face is turned towards the camera and is facing the camera directly.\n\nm4ymodel's hand is not on Dan's penis.\nm4ymodel's arm is around Dan's leg.\nDan's hand is not on his penis.\nThere are no hands on dan's penis.\nshe is looking at the camera.\nDan's penis is perfect and circumcised and is normal size.\n</position>\n<additional>\nm4ymodel is completely nude.\n</additional>\n<shot>\nMedium shot with m4ymodel's belly button visible at the bottom of the photo.\n</shot>\n<quality>\n8K ultra sharp photo.  Extreme details of m4ymodel's face and skin texture.  m4ymodel's pores are clearly visible.\n</quality>\nImportant: Dan's face is not in the photo, and there is not a penis in Dan's mouth.",
+      "clip": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "46": {
+    "inputs": {
+      "unet_name": "moodyPornMix_zitV9.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model （2ND K） ZIT"
+    }
+  },
+  "47": {
+    "inputs": {
+      "shift": 3,
+      "model": [
+        "446",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "129": {
+    "inputs": {
+      "samples": [
+        "500",
+        0
+      ],
+      "vae": [
+        "40",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "200": {
+    "inputs": {
+      "images": [
+        "129",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image 2ND"
+    }
+  },
+  "446": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "zit\\may_model_v1.safetensors",
+        "strength": 0
+      },
+      "lora_2": {
+        "on": true,
+        "lora": "zit\\may_model_v1.safetensors",
+        "strength": 0
+      },
+      "lora_3": {
+        "on": true,
+        "lora": "zit\\may_model_v1.safetensors",
+        "strength": 0
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "46",
+        0
+      ],
+      "clip": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "Power Lora Loader (rgthree)"
+    }
+  },
+  "452": {
+    "inputs": {
+      "samples": [
+        "501",
+        0
+      ],
+      "vae": [
+        "40",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "454": {
+    "inputs": {
+      "seed": -1
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "Seed (rgthree)"
+    }
+  },
+  "460": {
+    "inputs": {
+      "seed": -1
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "Seed (rgthree)"
+    }
+  },
+  "483": {
+    "inputs": {
+      "shift": 3,
+      "model": [
+        "488",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "488": {
+    "inputs": {
+      "unet_name": "zib\\moodyWildMix_v10Base50steps.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model (1ST K) ZIB"
+    }
+  },
+  "490": {
+    "inputs": {
+      "text": "blurry, low-resolution, low-quality image, eerie appearance, extra arms, extra legs, ugly, noisy, grid-like pattern, JPEG compression artifacts, watermark, garbled text, meaningless characters",
+      "clip": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "492": {
+    "inputs": {
+      "width": [
+        "513",
+        0
+      ],
+      "height": [
+        "514",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {
+      "title": "EmptySD3LatentImage"
+    }
+  },
+  "500": {
+    "inputs": {
+      "add_noise": "disable",
+      "noise_seed": [
+        "460",
+        0
+      ],
+      "steps": 12,
+      "cfg": 1,
+      "sampler_name": "dpmpp_2m_sde",
+      "scheduler": "beta",
+      "start_at_step": 4,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model": [
+        "47",
+        0
+      ],
+      "positive": [
+        "45",
+        0
+      ],
+      "negative": [
+        "42",
+        0
+      ],
+      "latent_image": [
+        "502",
+        0
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced) 2ND"
+    }
+  },
+  "501": {
+    "inputs": {
+      "add_noise": "enable",
+      "noise_seed": [
+        "454",
+        0
+      ],
+      "steps": 17,
+      "cfg": 4,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "start_at_step": 0,
+      "end_at_step": 12,
+      "return_with_leftover_noise": "enable",
+      "model": [
+        "483",
+        0
+      ],
+      "positive": [
+        "45",
+        0
+      ],
+      "negative": [
+        "490",
+        0
+      ],
+      "latent_image": [
+        "492",
+        0
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced) 1ST"
+    }
+  },
+  "502": {
+    "inputs": {
+      "upscale_method": "bislerp",
+      "scale_by": [
+        "520",
+        0
+      ],
+      "samples": [
+        "501",
+        0
+      ]
+    },
+    "class_type": "LatentUpscaleBy",
+    "_meta": {
+      "title": "Upscale Latent By"
+    }
+  },
+  "513": {
+    "inputs": {
+      "value": "a/b",
+      "a": [
+        "516",
+        0
+      ],
+      "b": [
+        "520",
+        0
+      ]
+    },
+    "class_type": "SimpleMath+",
+    "_meta": {
+      "title": "Calculate optimized width"
+    }
+  },
+  "514": {
+    "inputs": {
+      "value": "a/b",
+      "a": [
+        "518",
+        0
+      ],
+      "b": [
+        "520",
+        0
+      ]
+    },
+    "class_type": "SimpleMath+",
+    "_meta": {
+      "title": "Calculate optimized height"
+    }
+  },
+  "516": {
+    "inputs": {
+      "int": 1920
+    },
+    "class_type": "Int Literal",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "518": {
+    "inputs": {
+      "int": 1080
+    },
+    "class_type": "Int Literal",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "520": {
+    "inputs": {
+      "Number": "1.6"
+    },
+    "class_type": "Float",
+    "_meta": {
+      "title": "Scale"
+    }
+  }
+}

@@ -4,15 +4,15 @@ All URIs are relative to *http://localhost*
 
 | Method | HTTP request | Description |
 |------------- | ------------- | -------------|
-| [**generateImage**](ImagesApi.md#generateimage) | **POST** /v1/images/generations | Image generation (not implemented — stub 501) |
+| [**generateImage**](ImagesApi.md#generateimage) | **POST** /v1/images/generations | Generate an image using the zib-zit-moody ComfyUI workflow |
 
 
 
 ## generateImage
 
-> generateImage()
+> ImageGenerationResponse generateImage(imageGenerationRequest)
 
-Image generation (not implemented — stub 501)
+Generate an image using the zib-zit-moody ComfyUI workflow
 
 ### Example
 
@@ -27,8 +27,13 @@ async function example() {
   console.log("🚀 Testing  SDK...");
   const api = new ImagesApi();
 
+  const body = {
+    // ImageGenerationRequest
+    imageGenerationRequest: ...,
+  } satisfies GenerateImageRequest;
+
   try {
-    const data = await api.generateImage();
+    const data = await api.generateImage(body);
     console.log(data);
   } catch (error) {
     console.error(error);
@@ -41,11 +46,14 @@ example().catch(console.error);
 
 ### Parameters
 
-This endpoint does not need any parameter.
+
+| Name | Type | Description  | Notes |
+|------------- | ------------- | ------------- | -------------|
+| **imageGenerationRequest** | [ImageGenerationRequest](ImageGenerationRequest.md) |  | |
 
 ### Return type
 
-`void` (Empty response body)
+[**ImageGenerationResponse**](ImageGenerationResponse.md)
 
 ### Authorization
 
@@ -53,14 +61,15 @@ No authorization required
 
 ### HTTP request headers
 
-- **Content-Type**: Not defined
-- **Accept**: Not defined
+- **Content-Type**: `application/json`
+- **Accept**: `application/json`
 
 
 ### HTTP response details
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
-| **501** | Not implemented |  -  |
+| **200** |  |  -  |
+| **500** | ComfyUI unavailable or generation failed |  -  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
 

@@ -14,6 +14,20 @@
 
 
 import * as runtime from '../runtime';
+import type {
+  ImageGenerationRequest,
+  ImageGenerationResponse,
+} from '../models/index';
+import {
+    ImageGenerationRequestFromJSON,
+    ImageGenerationRequestToJSON,
+    ImageGenerationResponseFromJSON,
+    ImageGenerationResponseToJSON,
+} from '../models/index';
+
+export interface GenerateImageRequest {
+    imageGenerationRequest: ImageGenerationRequest;
+}
 
 /**
  * 
@@ -23,10 +37,19 @@ export class ImagesApi extends runtime.BaseAPI {
     /**
      * Creates request options for generateImage without sending the request
      */
-    async generateImageRequestOpts(): Promise<runtime.RequestOpts> {
+    async generateImageRequestOpts(requestParameters: GenerateImageRequest): Promise<runtime.RequestOpts> {
+        if (requestParameters['imageGenerationRequest'] == null) {
+            throw new runtime.RequiredError(
+                'imageGenerationRequest',
+                'Required parameter "imageGenerationRequest" was null or undefined when calling generateImage().'
+            );
+        }
+
         const queryParameters: any = {};
 
         const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
 
 
         let urlPath = `/v1/images/generations`;
@@ -36,24 +59,26 @@ export class ImagesApi extends runtime.BaseAPI {
             method: 'POST',
             headers: headerParameters,
             query: queryParameters,
+            body: ImageGenerationRequestToJSON(requestParameters['imageGenerationRequest']),
         };
     }
 
     /**
-     * Image generation (not implemented — stub 501)
+     * Generate an image using the zib-zit-moody ComfyUI workflow
      */
-    async generateImageRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<void>> {
-        const requestOptions = await this.generateImageRequestOpts();
+    async generateImageRaw(requestParameters: GenerateImageRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<ImageGenerationResponse>> {
+        const requestOptions = await this.generateImageRequestOpts(requestParameters);
         const response = await this.request(requestOptions, initOverrides);
 
-        return new runtime.VoidApiResponse(response);
+        return new runtime.JSONApiResponse(response, (jsonValue) => ImageGenerationResponseFromJSON(jsonValue));
     }
 
     /**
-     * Image generation (not implemented — stub 501)
+     * Generate an image using the zib-zit-moody ComfyUI workflow
      */
-    async generateImage(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void> {
-        await this.generateImageRaw(initOverrides);
+    async generateImage(imageGenerationRequest: ImageGenerationRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ImageGenerationResponse> {
+        const response = await this.generateImageRaw({ imageGenerationRequest: imageGenerationRequest }, initOverrides);
+        return await response.value();
     }
 
 }

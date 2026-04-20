@@ -7,6 +7,20 @@ import type {
 } from 'openai/resources/chat/completions';
 import type { ProxyExtensions } from './proxyExtensions';
 
+export type ImageGenerateParams = {
+  prompt: string;
+  /** Proxy extension: negative prompt for things to avoid in the image */
+  negativePrompt?: string;
+  model?: string | null;
+  n?: number | null;
+  size?: string | null;
+  response_format?: 'url' | 'b64_json' | null;
+  quality?: string | null;
+  style?: string | null;
+};
+export type ImageData = { b64_json?: string; url?: string; revised_prompt?: string };
+export type ImagesResponse = { created: number; data: ImageData[] };
+
 type RequestOpts = { signal?: AbortSignal };
 type CreateParamsNonStreaming = Omit<ChatCompletionCreateParamsNonStreaming, 'stream'> & ProxyExtensions & { stream?: false | null };
 type CreateParamsStreaming = Omit<ChatCompletionCreateParamsStreaming, 'stream'> & ProxyExtensions & { stream: true };
@@ -75,6 +89,29 @@ async function* sseToAsyncIterable(res: Response, signal?: AbortSignal): AsyncGe
   }
 }
 
+/** Provides openai-SDK-compatible images.generate() against the ai-proxy server. */
+class Images {
+  constructor(private readonly baseURL: string) {}
+
+  /**
+   * Generates an image using the ai-proxy ComfyUI backend and returns the result in OpenAI format.
+   * Always returns b64_json. negativePrompt is a proxy extension not in the official OpenAI SDK.
+   * @param params - image generation params; negativePrompt is a proxy extension
+   */
+  async generate(params: ImageGenerateParams): Promise<ImagesResponse> {
+    const res = await fetch(`${this.baseURL}/v1/images/generations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`ai-proxy ${res.status}: ${text}`);
+    }
+    return res.json() as Promise<ImagesResponse>;
+  }
+}
+
 /** Provides openai-SDK-compatible chat.completions.create() against the ai-proxy server. */
 class Completions {
   constructor(private readonly baseURL: string) {}
@@ -102,11 +139,13 @@ class Completions {
  */
 export default class OpenAI {
   readonly chat: { completions: Completions };
+  readonly images: Images;
   readonly models: ModelsApi;
 
   constructor(opts: { baseURL: string; apiKey?: string }) {
     const cfg = new Configuration({ basePath: opts.baseURL, apiKey: opts.apiKey });
     this.chat = { completions: new Completions(opts.baseURL) };
+    this.images = new Images(opts.baseURL);
     this.models = new ModelsApi(cfg);
   }
 }
@@ -124,4 +163,4 @@ export type {
 export type { ProxyExtensions } from './proxyExtensions';
 
 // Re-export generated API classes for lower-level access if needed.
-export { Configuration, ModelsApi, ChatCompletionsApi } from './generated';
+export { Configuration, ModelsApi, ChatCompletionsApi, ImagesApi } from './generated';
