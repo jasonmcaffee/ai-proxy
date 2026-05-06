@@ -5,7 +5,7 @@ All URIs are relative to *http://localhost*
 | Method | HTTP request | Description |
 |------------- | ------------- | -------------|
 | [**speak**](AudioApi.md#speak) | **POST** /v1/audio/speech | Text to speech (not implemented — stub 501) |
-| [**transcribe**](AudioApi.md#transcribe) | **POST** /v1/audio/transcriptions | Speech to text transcription (not implemented — stub 501) |
+| [**transcribe**](AudioApi.md#transcribe) | **POST** /v1/audio/transcriptions | Transcribe audio to text using speaches (faster-whisper) |
 
 
 
@@ -68,9 +68,9 @@ No authorization required
 
 ## transcribe
 
-> transcribe()
+> AudioTranscriptionResponse transcribe(file, model, language)
 
-Speech to text transcription (not implemented — stub 501)
+Transcribe audio to text using speaches (faster-whisper)
 
 ### Example
 
@@ -85,8 +85,17 @@ async function example() {
   console.log("🚀 Testing  SDK...");
   const api = new AudioApi();
 
+  const body = {
+    // Blob | Audio file to transcribe
+    file: BINARY_DATA_HERE,
+    // string | Whisper model name (optional)
+    model: model_example,
+    // string | ISO 639-1 language code (optional)
+    language: language_example,
+  } satisfies TranscribeRequest;
+
   try {
-    const data = await api.transcribe();
+    const data = await api.transcribe(body);
     console.log(data);
   } catch (error) {
     console.error(error);
@@ -99,11 +108,16 @@ example().catch(console.error);
 
 ### Parameters
 
-This endpoint does not need any parameter.
+
+| Name | Type | Description  | Notes |
+|------------- | ------------- | ------------- | -------------|
+| **file** | `Blob` | Audio file to transcribe | [Defaults to `undefined`] |
+| **model** | `string` | Whisper model name | [Optional] [Defaults to `undefined`] |
+| **language** | `string` | ISO 639-1 language code | [Optional] [Defaults to `undefined`] |
 
 ### Return type
 
-`void` (Empty response body)
+[**AudioTranscriptionResponse**](AudioTranscriptionResponse.md)
 
 ### Authorization
 
@@ -111,14 +125,15 @@ No authorization required
 
 ### HTTP request headers
 
-- **Content-Type**: Not defined
-- **Accept**: Not defined
+- **Content-Type**: `multipart/form-data`
+- **Accept**: `application/json`
 
 
 ### HTTP response details
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
-| **501** | Not implemented |  -  |
+| **200** |  |  -  |
+| **500** | Transcription failed |  -  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
 

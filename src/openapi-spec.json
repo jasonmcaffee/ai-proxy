@@ -94,12 +94,52 @@
       "post": {
         "operationId": "transcribe",
         "parameters": [],
-        "responses": {
-          "501": {
-            "description": "Not implemented"
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Audio file to transcribe"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "Whisper model name",
+                    "example": "Systran/faster-whisper-small"
+                  },
+                  "language": {
+                    "type": "string",
+                    "description": "ISO 639-1 language code",
+                    "example": "en"
+                  }
+                }
+              }
+            }
           }
         },
-        "summary": "Speech to text transcription (not implemented — stub 501)",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioTranscriptionResponseDto"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Transcription failed"
+          }
+        },
+        "summary": "Transcribe audio to text using speaches (faster-whisper)",
         "tags": [
           "audio"
         ]
@@ -506,6 +546,18 @@
         "required": [
           "created",
           "data"
+        ]
+      },
+      "AudioTranscriptionResponseDto": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The transcribed text"
+          }
+        },
+        "required": [
+          "text"
         ]
       }
     }

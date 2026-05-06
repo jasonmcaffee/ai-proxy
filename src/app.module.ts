@@ -12,6 +12,7 @@ import { StreamBufferService } from './services/streamBuffer.service';
 import { StubForwarderService } from './services/stubForwarder.service';
 import { ImageCreatorService } from './services/imageCreator/imageCreator.service';
 import { ComfyUIClientService } from './services/imageCreator/comfyUIClient.service';
+import { SpeechToTextService } from './services/speechToText.service';
 
 @Module({
   imports: [],
@@ -31,6 +32,7 @@ import { ComfyUIClientService } from './services/imageCreator/comfyUIClient.serv
     StubForwarderService,
     ImageCreatorService,
     ComfyUIClientService,
+    SpeechToTextService,
   ],
 })
 export class AppModule {}

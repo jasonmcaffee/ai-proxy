@@ -1,4 +1,5 @@
-import { Configuration, ModelsApi } from './generated';
+import { AudioApi, Configuration, ModelsApi } from './generated';
+import type { AudioTranscriptionResponse } from './generated';
 import type {
   ChatCompletionCreateParamsNonStreaming,
   ChatCompletionCreateParamsStreaming,
@@ -89,6 +90,30 @@ async function* sseToAsyncIterable(res: Response, signal?: AbortSignal): AsyncGe
   }
 }
 
+export type TranscriptionCreateParams = { file: Blob; model?: string; language?: string };
+
+/** Wraps the generated AudioApi to expose an OpenAI-SDK-compatible transcriptions.create() method. */
+class Transcriptions {
+  constructor(private readonly audioApi: AudioApi) {}
+
+  /**
+   * Sends an audio file to the proxy for transcription and returns the result.
+   * @param params - file (Blob), optional model and language
+   */
+  async create(params: TranscriptionCreateParams): Promise<AudioTranscriptionResponse> {
+    return this.audioApi.transcribe(params.file, params.model, params.language);
+  }
+}
+
+/** Provides openai-SDK-compatible audio.transcriptions.create() against the ai-proxy server. */
+class Audio {
+  readonly transcriptions: Transcriptions;
+
+  constructor(audioApi: AudioApi) {
+    this.transcriptions = new Transcriptions(audioApi);
+  }
+}
+
 /** Provides openai-SDK-compatible images.generate() against the ai-proxy server. */
 class Images {
   constructor(private readonly baseURL: string) {}
@@ -144,12 +169,14 @@ export default class OpenAI {
   readonly chat: { completions: Completions };
   readonly images: Images;
   readonly models: ModelsApi;
+  readonly audio: Audio;
 
   constructor(opts: { baseURL: string; apiKey?: string }) {
     const cfg = new Configuration({ basePath: opts.baseURL, apiKey: opts.apiKey });
     this.chat = { completions: new Completions(opts.baseURL) };
     this.images = new Images(opts.baseURL);
     this.models = new ModelsApi(cfg);
+    this.audio = new Audio(new AudioApi(cfg));
   }
 }
 
@@ -166,4 +193,5 @@ export type {
 export type { ProxyExtensions } from './proxyExtensions';
 
 // Re-export generated API classes for lower-level access if needed.
-export { Configuration, ModelsApi, ChatCompletionsApi, ImagesApi } from './generated';
+export { Configuration, ModelsApi, ChatCompletionsApi, ImagesApi, AudioApi } from './generated';
+export type { AudioTranscriptionResponse } from './generated';

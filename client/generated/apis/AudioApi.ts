@@ -14,6 +14,19 @@
 
 
 import * as runtime from '../runtime';
+import type {
+  AudioTranscriptionResponse,
+} from '../models/index';
+import {
+    AudioTranscriptionResponseFromJSON,
+    AudioTranscriptionResponseToJSON,
+} from '../models/index';
+
+export interface TranscribeRequest {
+    file: Blob;
+    model?: string;
+    language?: string;
+}
 
 /**
  * 
@@ -59,10 +72,45 @@ export class AudioApi extends runtime.BaseAPI {
     /**
      * Creates request options for transcribe without sending the request
      */
-    async transcribeRequestOpts(): Promise<runtime.RequestOpts> {
+    async transcribeRequestOpts(requestParameters: TranscribeRequest): Promise<runtime.RequestOpts> {
+        if (requestParameters['file'] == null) {
+            throw new runtime.RequiredError(
+                'file',
+                'Required parameter "file" was null or undefined when calling transcribe().'
+            );
+        }
+
         const queryParameters: any = {};
 
         const headerParameters: runtime.HTTPHeaders = {};
+
+        const consumes: runtime.Consume[] = [
+            { contentType: 'multipart/form-data' },
+        ];
+        // @ts-ignore: canConsumeForm may be unused
+        const canConsumeForm = runtime.canConsumeForm(consumes);
+
+        let formParams: { append(param: string, value: any): any };
+        let useForm = false;
+        // use FormData to transmit files using content-type "multipart/form-data"
+        useForm = canConsumeForm;
+        if (useForm) {
+            formParams = new FormData();
+        } else {
+            formParams = new URLSearchParams();
+        }
+
+        if (requestParameters['file'] != null) {
+            formParams.append('file', requestParameters['file'] as any);
+        }
+
+        if (requestParameters['model'] != null) {
+            formParams.append('model', requestParameters['model'] as any);
+        }
+
+        if (requestParameters['language'] != null) {
+            formParams.append('language', requestParameters['language'] as any);
+        }
 
 
         let urlPath = `/v1/audio/transcriptions`;
@@ -72,24 +120,26 @@ export class AudioApi extends runtime.BaseAPI {
             method: 'POST',
             headers: headerParameters,
             query: queryParameters,
+            body: formParams,
         };
     }
 
     /**
-     * Speech to text transcription (not implemented — stub 501)
+     * Transcribe audio to text using speaches (faster-whisper)
      */
-    async transcribeRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<void>> {
-        const requestOptions = await this.transcribeRequestOpts();
+    async transcribeRaw(requestParameters: TranscribeRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<AudioTranscriptionResponse>> {
+        const requestOptions = await this.transcribeRequestOpts(requestParameters);
         const response = await this.request(requestOptions, initOverrides);
 
-        return new runtime.VoidApiResponse(response);
+        return new runtime.JSONApiResponse(response, (jsonValue) => AudioTranscriptionResponseFromJSON(jsonValue));
     }
 
     /**
-     * Speech to text transcription (not implemented — stub 501)
+     * Transcribe audio to text using speaches (faster-whisper)
      */
-    async transcribe(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void> {
-        await this.transcribeRaw(initOverrides);
+    async transcribe(file: Blob, model?: string, language?: string, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<AudioTranscriptionResponse> {
+        const response = await this.transcribeRaw({ file: file, model: model, language: language }, initOverrides);
+        return await response.value();
     }
 
 }
