@@ -5,6 +5,8 @@ apis/ModelsApi.ts
 apis/VideosApi.ts
 apis/index.ts
 docs/AudioApi.md
+docs/AudioSpeechRequest.md
+docs/AudioSpeechStreamChunk.md
 docs/AudioTranscriptionResponse.md
 docs/ChatChoice.md
 docs/ChatCompletionRequest.md
@@ -26,6 +28,8 @@ docs/ToolFunction.md
 docs/Usage.md
 docs/VideosApi.md
 index.ts
+models/AudioSpeechRequest.ts
+models/AudioSpeechStreamChunk.ts
 models/AudioTranscriptionResponse.ts
 models/ChatChoice.ts
 models/ChatCompletionRequest.ts

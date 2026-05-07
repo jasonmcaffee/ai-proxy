@@ -17,11 +17,6 @@ export class StubForwarderService {
     throw new NotImplementedException('Audio transcription (speech-to-text) is not implemented in this proxy');
   }
 
-  /** @throws NotImplementedException - text-to-speech is not implemented */
-  audioSpeech(): never {
-    throw new NotImplementedException('Text-to-speech is not implemented in this proxy');
-  }
-
   /** @throws NotImplementedException - video generation is not implemented */
   videoGeneration(): never {
     throw new NotImplementedException('Video generation is not implemented in this proxy');

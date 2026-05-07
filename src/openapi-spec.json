@@ -149,12 +149,68 @@
       "post": {
         "operationId": "speak",
         "parameters": [],
-        "responses": {
-          "501": {
-            "description": "Not implemented"
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioSpeechRequestDto"
+              }
+            }
           }
         },
-        "summary": "Text to speech (not implemented — stub 501)",
+        "responses": {
+          "200": {
+            "description": "Binary audio body",
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid input"
+          },
+          "500": {
+            "description": "Speech synthesis failed"
+          }
+        },
+        "summary": "Generate speech audio from text via speaches (sync)",
+        "tags": [
+          "audio"
+        ]
+      }
+    },
+    "/v1/audio/speech/stream": {
+      "post": {
+        "operationId": "speakStream",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioSpeechRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE stream of audio chunks",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioSpeechStreamChunkDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Generate speech audio sentence-by-sentence over SSE",
         "tags": [
           "audio"
         ]
@@ -558,6 +614,55 @@
         },
         "required": [
           "text"
+        ]
+      },
+      "AudioSpeechStreamChunkDto": {
+        "type": "object",
+        "properties": {
+          "audio": {
+            "type": "string",
+            "description": "Base64-encoded audio buffer for one sentence"
+          },
+          "sentence": {
+            "type": "string",
+            "description": "The sentence whose audio is in this chunk"
+          }
+        },
+        "required": [
+          "audio",
+          "sentence"
+        ]
+      },
+      "AudioSpeechRequestDto": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Text to synthesize"
+          },
+          "model": {
+            "type": "string",
+            "description": "TTS model to use",
+            "example": "hexgrad/Kokoro-82M"
+          },
+          "voice": {
+            "type": "string",
+            "description": "Voice to use",
+            "example": "af_sky"
+          },
+          "response_format": {
+            "type": "string",
+            "description": "Audio format: mp3, wav, flac, opus, aac, pcm",
+            "example": "mp3"
+          },
+          "speed": {
+            "type": "number",
+            "description": "Speech speed (0.25–4.0)",
+            "example": 1
+          }
+        },
+        "required": [
+          "input"
         ]
       }
     }

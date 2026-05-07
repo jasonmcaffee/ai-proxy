@@ -15,12 +15,26 @@
 
 import * as runtime from '../runtime';
 import type {
+  AudioSpeechRequest,
+  AudioSpeechStreamChunk,
   AudioTranscriptionResponse,
 } from '../models/index';
 import {
+    AudioSpeechRequestFromJSON,
+    AudioSpeechRequestToJSON,
+    AudioSpeechStreamChunkFromJSON,
+    AudioSpeechStreamChunkToJSON,
     AudioTranscriptionResponseFromJSON,
     AudioTranscriptionResponseToJSON,
 } from '../models/index';
+
+export interface SpeakRequest {
+    audioSpeechRequest: AudioSpeechRequest;
+}
+
+export interface SpeakStreamRequest {
+    audioSpeechRequest: AudioSpeechRequest;
+}
 
 export interface TranscribeRequest {
     file: Blob;
@@ -36,10 +50,19 @@ export class AudioApi extends runtime.BaseAPI {
     /**
      * Creates request options for speak without sending the request
      */
-    async speakRequestOpts(): Promise<runtime.RequestOpts> {
+    async speakRequestOpts(requestParameters: SpeakRequest): Promise<runtime.RequestOpts> {
+        if (requestParameters['audioSpeechRequest'] == null) {
+            throw new runtime.RequiredError(
+                'audioSpeechRequest',
+                'Required parameter "audioSpeechRequest" was null or undefined when calling speak().'
+            );
+        }
+
         const queryParameters: any = {};
 
         const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
 
 
         let urlPath = `/v1/audio/speech`;
@@ -49,24 +72,73 @@ export class AudioApi extends runtime.BaseAPI {
             method: 'POST',
             headers: headerParameters,
             query: queryParameters,
+            body: AudioSpeechRequestToJSON(requestParameters['audioSpeechRequest']),
         };
     }
 
     /**
-     * Text to speech (not implemented — stub 501)
+     * Generate speech audio from text via speaches (sync)
      */
-    async speakRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<void>> {
-        const requestOptions = await this.speakRequestOpts();
+    async speakRaw(requestParameters: SpeakRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Blob>> {
+        const requestOptions = await this.speakRequestOpts(requestParameters);
         const response = await this.request(requestOptions, initOverrides);
 
-        return new runtime.VoidApiResponse(response);
+        return new runtime.BlobApiResponse(response);
     }
 
     /**
-     * Text to speech (not implemented — stub 501)
+     * Generate speech audio from text via speaches (sync)
      */
-    async speak(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void> {
-        await this.speakRaw(initOverrides);
+    async speak(audioSpeechRequest: AudioSpeechRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Blob> {
+        const response = await this.speakRaw({ audioSpeechRequest: audioSpeechRequest }, initOverrides);
+        return await response.value();
+    }
+
+    /**
+     * Creates request options for speakStream without sending the request
+     */
+    async speakStreamRequestOpts(requestParameters: SpeakStreamRequest): Promise<runtime.RequestOpts> {
+        if (requestParameters['audioSpeechRequest'] == null) {
+            throw new runtime.RequiredError(
+                'audioSpeechRequest',
+                'Required parameter "audioSpeechRequest" was null or undefined when calling speakStream().'
+            );
+        }
+
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+
+        let urlPath = `/v1/audio/speech/stream`;
+
+        return {
+            path: urlPath,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: AudioSpeechRequestToJSON(requestParameters['audioSpeechRequest']),
+        };
+    }
+
+    /**
+     * Generate speech audio sentence-by-sentence over SSE
+     */
+    async speakStreamRaw(requestParameters: SpeakStreamRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<AudioSpeechStreamChunk>> {
+        const requestOptions = await this.speakStreamRequestOpts(requestParameters);
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.JSONApiResponse(response, (jsonValue) => AudioSpeechStreamChunkFromJSON(jsonValue));
+    }
+
+    /**
+     * Generate speech audio sentence-by-sentence over SSE
+     */
+    async speakStream(audioSpeechRequest: AudioSpeechRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<AudioSpeechStreamChunk> {
+        const response = await this.speakStreamRaw({ audioSpeechRequest: audioSpeechRequest }, initOverrides);
+        return await response.value();
     }
 
     /**

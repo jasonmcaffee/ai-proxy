@@ -4,16 +4,17 @@ All URIs are relative to *http://localhost*
 
 | Method | HTTP request | Description |
 |------------- | ------------- | -------------|
-| [**speak**](AudioApi.md#speak) | **POST** /v1/audio/speech | Text to speech (not implemented — stub 501) |
+| [**speak**](AudioApi.md#speak) | **POST** /v1/audio/speech | Generate speech audio from text via speaches (sync) |
+| [**speakStream**](AudioApi.md#speakstream) | **POST** /v1/audio/speech/stream | Generate speech audio sentence-by-sentence over SSE |
 | [**transcribe**](AudioApi.md#transcribe) | **POST** /v1/audio/transcriptions | Transcribe audio to text using speaches (faster-whisper) |
 
 
 
 ## speak
 
-> speak()
+> Blob speak(audioSpeechRequest)
 
-Text to speech (not implemented — stub 501)
+Generate speech audio from text via speaches (sync)
 
 ### Example
 
@@ -28,8 +29,13 @@ async function example() {
   console.log("🚀 Testing  SDK...");
   const api = new AudioApi();
 
+  const body = {
+    // AudioSpeechRequest
+    audioSpeechRequest: ...,
+  } satisfies SpeakRequest;
+
   try {
-    const data = await api.speak();
+    const data = await api.speak(body);
     console.log(data);
   } catch (error) {
     console.error(error);
@@ -42,11 +48,14 @@ example().catch(console.error);
 
 ### Parameters
 
-This endpoint does not need any parameter.
+
+| Name | Type | Description  | Notes |
+|------------- | ------------- | ------------- | -------------|
+| **audioSpeechRequest** | [AudioSpeechRequest](AudioSpeechRequest.md) |  | |
 
 ### Return type
 
-`void` (Empty response body)
+**Blob**
 
 ### Authorization
 
@@ -54,14 +63,81 @@ No authorization required
 
 ### HTTP request headers
 
-- **Content-Type**: Not defined
-- **Accept**: Not defined
+- **Content-Type**: `application/json`
+- **Accept**: `audio/mpeg`
 
 
 ### HTTP response details
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
-| **501** | Not implemented |  -  |
+| **200** | Binary audio body |  -  |
+| **400** | Missing or invalid input |  -  |
+| **500** | Speech synthesis failed |  -  |
+
+[[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
+
+
+## speakStream
+
+> AudioSpeechStreamChunk speakStream(audioSpeechRequest)
+
+Generate speech audio sentence-by-sentence over SSE
+
+### Example
+
+```ts
+import {
+  Configuration,
+  AudioApi,
+} from '';
+import type { SpeakStreamRequest } from '';
+
+async function example() {
+  console.log("🚀 Testing  SDK...");
+  const api = new AudioApi();
+
+  const body = {
+    // AudioSpeechRequest
+    audioSpeechRequest: ...,
+  } satisfies SpeakStreamRequest;
+
+  try {
+    const data = await api.speakStream(body);
+    console.log(data);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+// Run the test
+example().catch(console.error);
+```
+
+### Parameters
+
+
+| Name | Type | Description  | Notes |
+|------------- | ------------- | ------------- | -------------|
+| **audioSpeechRequest** | [AudioSpeechRequest](AudioSpeechRequest.md) |  | |
+
+### Return type
+
+[**AudioSpeechStreamChunk**](AudioSpeechStreamChunk.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: `application/json`
+- **Accept**: `text/event-stream`
+
+
+### HTTP response details
+| Status code | Description | Response headers |
+|-------------|-------------|------------------|
+| **200** | SSE stream of audio chunks |  -  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
 

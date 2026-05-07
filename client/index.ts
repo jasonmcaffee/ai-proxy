@@ -90,6 +90,118 @@ async function* sseToAsyncIterable(res: Response, signal?: AbortSignal): AsyncGe
   }
 }
 
+// ─── Text-to-speech types ────────────────────────────────────────────────────
+
+export type SpeechCreateParamsBase = {
+  input: string;
+  model?: string;
+  voice?: string;
+  response_format?: string;
+  speed?: number;
+};
+export type SpeechCreateParamsNonStreaming = SpeechCreateParamsBase & { stream?: false };
+export type SpeechCreateParamsStreaming = SpeechCreateParamsBase & { stream: true };
+
+/** One sentence's worth of base64-decoded audio from the streaming TTS endpoint. */
+export type SpeechChunk = { audio: ArrayBuffer; sentence: string };
+
+/**
+ * Parses an SSE response from the /v1/audio/speech/stream endpoint into SpeechChunk values.
+ * Stops on [DONE] or signal abort. Throws if the server sends an error event.
+ * @param res - fetch Response with SSE body
+ * @param signal - optional AbortSignal to stop reading
+ */
+async function* sseToSpeechChunks(res: Response, signal?: AbortSignal): AsyncGenerator<SpeechChunk> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      if (signal?.aborted) break;
+      let done: boolean;
+      let value: Uint8Array | undefined;
+      try {
+        ({ done, value } = await reader.read());
+      } catch {
+        break;
+      }
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice('data: '.length).trim();
+        if (data === '[DONE]') return;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) throw new Error(parsed.error.message ?? 'tts_error');
+          const audioBytes = Uint8Array.from(atob(parsed.audio), c => c.charCodeAt(0));
+          yield { audio: audioBytes.buffer, sentence: parsed.sentence };
+        } catch (e) {
+          if ((e as Error).message?.includes('tts_error') || (e as Error).message?.includes('error')) throw e;
+          /* skip malformed lines */
+        }
+      }
+    }
+  } finally {
+    try { await reader.cancel(); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Calls /v1/audio/speech (sync) and returns the raw ArrayBuffer.
+ * @param baseURL - proxy base URL
+ * @param body - TTS request params (input, model, voice, response_format, speed)
+ * @param signal - optional AbortSignal
+ */
+async function fetchSpeechSync(baseURL: string, body: SpeechCreateParamsBase, signal?: AbortSignal): Promise<ArrayBuffer> {
+  const res = await fetch(`${baseURL}/v1/audio/speech`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) throw new Error(`ai-proxy ${res.status}: ${await res.text()}`);
+  return res.arrayBuffer();
+}
+
+/**
+ * Calls /v1/audio/speech/stream (SSE) and returns an AsyncIterable of SpeechChunks.
+ * @param baseURL - proxy base URL
+ * @param body - TTS request params
+ * @param signal - optional AbortSignal
+ */
+async function fetchSpeechStream(baseURL: string, body: SpeechCreateParamsBase, signal?: AbortSignal): Promise<AsyncIterable<SpeechChunk>> {
+  const res = await fetch(`${baseURL}/v1/audio/speech/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) throw new Error(`ai-proxy ${res.status}: ${await res.text()}`);
+  return sseToSpeechChunks(res, signal);
+}
+
+/**
+ * OpenAI-SDK-compatible text-to-speech client.
+ * create() without stream returns an ArrayBuffer; with stream:true returns AsyncIterable<SpeechChunk>.
+ */
+class Speech {
+  constructor(private readonly baseURL: string) {}
+
+  create(params: SpeechCreateParamsStreaming, opts?: RequestOpts): Promise<AsyncIterable<SpeechChunk>>;
+  create(params: SpeechCreateParamsNonStreaming, opts?: RequestOpts): Promise<ArrayBuffer>;
+  async create(params: SpeechCreateParamsBase & { stream?: boolean }, opts?: RequestOpts): Promise<ArrayBuffer | AsyncIterable<SpeechChunk>> {
+    const { stream, ...body } = params;
+    if (stream) return fetchSpeechStream(this.baseURL, body, opts?.signal);
+    return fetchSpeechSync(this.baseURL, body, opts?.signal);
+  }
+}
+
+// ─── Transcription types ──────────────────────────────────────────────────────
+
 export type TranscriptionCreateParams = { file: Blob; model?: string; language?: string };
 
 /** Wraps the generated AudioApi to expose an OpenAI-SDK-compatible transcriptions.create() method. */
@@ -105,12 +217,14 @@ class Transcriptions {
   }
 }
 
-/** Provides openai-SDK-compatible audio.transcriptions.create() against the ai-proxy server. */
+/** Provides openai-SDK-compatible audio.transcriptions.create() and audio.speech.create() against the ai-proxy server. */
 class Audio {
   readonly transcriptions: Transcriptions;
+  readonly speech: Speech;
 
-  constructor(audioApi: AudioApi) {
+  constructor(audioApi: AudioApi, baseURL: string) {
     this.transcriptions = new Transcriptions(audioApi);
+    this.speech = new Speech(baseURL);
   }
 }
 
@@ -176,7 +290,7 @@ export default class OpenAI {
     this.chat = { completions: new Completions(opts.baseURL) };
     this.images = new Images(opts.baseURL);
     this.models = new ModelsApi(cfg);
-    this.audio = new Audio(new AudioApi(cfg));
+    this.audio = new Audio(new AudioApi(cfg), opts.baseURL);
   }
 }
 

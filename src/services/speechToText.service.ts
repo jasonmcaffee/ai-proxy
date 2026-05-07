@@ -3,8 +3,8 @@ import { OpenAI } from 'openai';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { SPEACHES_BASE_URL } from './speaches.config';
 
-const SPEACHES_BASE_URL = process.env.SPEACHES_BASE_URL || 'http://localhost:8000/v1';
 const DEFAULT_MODEL = 'Systran/faster-whisper-small';
 
 /**

@@ -1,5 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
+export * from './AudioSpeechRequest';
+export * from './AudioSpeechStreamChunk';
 export * from './AudioTranscriptionResponse';
 export * from './ChatChoice';
 export * from './ChatCompletionRequest';
