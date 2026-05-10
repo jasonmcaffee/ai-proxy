@@ -15,6 +15,10 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit 1 }
 $DistPath = Join-Path $ProjectRoot "dist"
 if (!(Test-Path $DistPath)) { Write-Error "dist folder not found at $DistPath after build"; exit 1 }
 
+Write-Host "Stopping prod service on port 4141 (if running)..."
+$p = (Get-NetTCPConnection -LocalPort 4141 -State Listen -ErrorAction SilentlyContinue).OwningProcess | Select-Object -First 1
+if ($p) { Stop-Process -Id $p -Force; Write-Host "Killed process $p"; Start-Sleep -Seconds 2 } else { Write-Host "No process on port 4141" }
+
 Write-Host "Cleaning $Dest..."
 if (Test-Path $Dest) { Remove-Item -Path $Dest -Recurse -Force }
 New-Item -ItemType Directory -Path $Dest | Out-Null
@@ -22,6 +26,7 @@ New-Item -ItemType Directory -Path $Dest | Out-Null
 Write-Host "Deploying to $Dest..."
 Copy-Item -Path $DistPath -Destination $Dest -Recurse -Force
 Copy-Item -Path (Join-Path $ProjectRoot "package.json") -Destination $Dest -Force
+Copy-Item -Path (Join-Path $PSScriptRoot "start-prod.bat") -Destination $Dest -Force
 $EnvFile = Join-Path $ProjectRoot ".env"
 if (Test-Path $EnvFile) { Copy-Item -Path $EnvFile -Destination $Dest -Force }
 
