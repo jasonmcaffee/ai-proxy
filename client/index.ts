@@ -203,8 +203,14 @@ class Speech {
 
 // ─── Transcription types ──────────────────────────────────────────────────────
 
-export type TranscriptionCreateParams = { file: Blob; model?: string; language?: string; diarization?: false };
-export type TranscriptionCreateParamsDiarized = { file: Blob; model?: string; language?: string; diarization: true; min_speakers?: number; max_speakers?: number };
+/**
+ * Params for the default (always-diarized) transcription path.
+ * The server now returns verbose_json with speaker segments by default.
+ * Pass legacy:true to opt into the old plain-text response format.
+ */
+export type TranscriptionCreateParams = { file: Blob; model?: string; language?: string; min_speakers?: number; max_speakers?: number; legacy?: boolean };
+/** Kept for backward compatibility — equivalent to TranscriptionCreateParams (diarization is now the default). */
+export type TranscriptionCreateParamsDiarized = TranscriptionCreateParams;
 
 /** One committed segment returned by the realtime diarization stream. */
 export type TranscriptionSegment = { text: string; start: number; end: number; speaker: string; segment_id?: number };
@@ -326,28 +332,28 @@ class Transcriptions {
   constructor(private readonly audioApi: AudioApi, private readonly baseURL: string) {}
 
   /**
-   * Sends an audio file to the proxy for transcription and returns the result.
-   * Diarized path uses raw fetch to avoid the generated client's oneOf discriminator
-   * matching AudioTranscriptionResponse first and stripping segments.
-   * @param params - file (Blob), optional model, language, diarization, min_speakers, max_speakers
+   * Sends an audio file to the proxy for transcription.
+   * The server now always returns verbose_json with speaker-labelled segments.
+   * Pass legacy:true to opt into the old plain-text AudioTranscriptionResponse format.
+   * Uses raw fetch for both paths so the response shape is never stripped by the generated client.
+   * @param params - file (Blob), optional model, language, min_speakers, max_speakers, legacy
    */
-  create(params: TranscriptionCreateParamsDiarized): Promise<AudioTranscriptionVerboseResponse>;
-  create(params: TranscriptionCreateParams): Promise<AudioTranscriptionResponse>;
-  async create(params: TranscriptionCreateParams | TranscriptionCreateParamsDiarized): Promise<AudioTranscriptionResponse | AudioTranscriptionVerboseResponse> {
+  create(params: TranscriptionCreateParams & { legacy: true }): Promise<AudioTranscriptionResponse>;
+  create(params: TranscriptionCreateParams): Promise<AudioTranscriptionVerboseResponse>;
+  async create(params: TranscriptionCreateParams): Promise<AudioTranscriptionResponse | AudioTranscriptionVerboseResponse> {
     const p = params as any;
-    if (p.diarization) {
-      const form = new FormData();
-      form.append('file', p.file, 'audio');
-      if (p.model) form.append('model', p.model);
-      if (p.language) form.append('language', p.language);
-      form.append('diarization', 'true');
-      if (p.min_speakers !== undefined) form.append('min_speakers', String(p.min_speakers));
-      if (p.max_speakers !== undefined) form.append('max_speakers', String(p.max_speakers));
-      const res = await fetch(`${this.baseURL}/v1/audio/transcriptions`, { method: 'POST', body: form });
-      if (!res.ok) throw new Error(`ai-proxy ${res.status}: ${await res.text()}`);
-      return res.json() as Promise<AudioTranscriptionVerboseResponse>;
+    if (p.legacy) {
+      return this.audioApi.transcribe(p.file, p.model, p.language, undefined, true) as any;
     }
-    return this.audioApi.transcribe(p.file, p.model, p.language) as any;
+    const form = new FormData();
+    form.append('file', p.file, 'audio');
+    if (p.model) form.append('model', p.model);
+    if (p.language) form.append('language', p.language);
+    if (p.min_speakers !== undefined) form.append('min_speakers', String(p.min_speakers));
+    if (p.max_speakers !== undefined) form.append('max_speakers', String(p.max_speakers));
+    const res = await fetch(`${this.baseURL}/v1/audio/transcriptions`, { method: 'POST', body: form });
+    if (!res.ok) throw new Error(`ai-proxy ${res.status}: ${await res.text()}`);
+    return res.json() as Promise<AudioTranscriptionVerboseResponse>;
   }
 
   /**

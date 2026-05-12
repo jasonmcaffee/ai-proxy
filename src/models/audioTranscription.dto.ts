@@ -22,6 +22,12 @@ export class AudioTranscriptionRequestDto {
   @IsBoolean()
   diarization?: boolean;
 
+  @ApiPropertyOptional({ description: 'Use legacy speaches (faster-whisper) backend instead of transcribe-audio. Returns plain {text}.', default: false })
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  legacy?: boolean;
+
   @ApiPropertyOptional({ description: 'Minimum number of speakers hint (used when diarization=true)', example: 2 })
   @IsOptional()
   @Transform(({ value }) => (value !== undefined ? parseInt(value, 10) : value))

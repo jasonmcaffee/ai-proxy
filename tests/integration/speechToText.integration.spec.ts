@@ -46,4 +46,26 @@ describe('Integration — speech to text (requires proxy on :4141 and speaches o
     }, 60000);
   });
 
+  describe('STT3 — legacy=true routes to speaches backend', () => {
+    it('returns plain {text} using the speaches faster-whisper backend when legacy=true', async () => {
+      const audioBuffer = readFileSync(FIXTURE_PATH);
+      const audioBlob = new Blob([audioBuffer], { type: 'audio/mp4' });
+
+      const result = await openai.audio.transcriptions.create({
+        file: audioBlob,
+        legacy: true,
+        language: 'en',
+      });
+
+      expect(result).toBeDefined();
+      expect(typeof result.text).toBe('string');
+      expect(result.text.length).toBeGreaterThan(10);
+      console.log(`[STT3] legacy transcribed: "${result.text}"`);
+
+      const normalized = normalizeText(result.text);
+      const expectedNormalized = normalizeText(EXPECTED_TEXT);
+      expect(normalized).toBe(expectedNormalized);
+    }, 60000);
+  });
+
 });

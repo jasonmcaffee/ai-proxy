@@ -111,7 +111,7 @@
                   },
                   "model": {
                     "type": "string",
-                    "description": "Whisper model name",
+                    "description": "Whisper model name (legacy=true only)",
                     "example": "Systran/faster-whisper-small"
                   },
                   "language": {
@@ -121,7 +121,12 @@
                   },
                   "diarization": {
                     "type": "boolean",
-                    "description": "Enable speaker diarization (routes to transcribe-audio service)",
+                    "description": "Enable speaker diarization — returns verbose_json with per-segment speaker labels. Mutually exclusive with legacy.",
+                    "default": false
+                  },
+                  "legacy": {
+                    "type": "boolean",
+                    "description": "Use legacy speaches (faster-whisper) backend. Returns plain {text}. Mutually exclusive with diarization.",
                     "default": false
                   },
                   "min_speakers": {
@@ -141,7 +146,7 @@
         },
         "responses": {
           "200": {
-            "description": "Transcription result — plain {text} when diarization=false, verbose with speakers when diarization=true",
+            "description": "Plain {text} by default or with legacy=true; verbose response with speaker segments when diarization=true",
             "content": {
               "application/json": {
                 "schema": {
@@ -161,7 +166,7 @@
             "description": "Transcription failed"
           }
         },
-        "summary": "Transcribe audio to text. With diarization=true, returns verbose_json with per-segment speaker labels.",
+        "summary": "Transcribe audio. Default: transcribe-audio (Whisper large-v3). legacy=true: speaches. diarization=true: transcribe-audio with speaker labels.",
         "tags": [
           "audio"
         ]

@@ -8,13 +8,15 @@ import { TranscribeAudioService } from '../services/transcribeAudio.service';
 
 /**
  * Handles POST /v1/audio/transcriptions — OpenAI-compatible speech-to-text.
- * Routes to speaches (default) or transcribe-audio (when diarization=true).
+ * Default routes to transcribe-audio (Whisper large-v3).
+ * legacy=true routes to speaches (faster-whisper, lightweight).
+ * diarization=true routes to transcribe-audio with pyannote speaker labels.
  */
 @ApiTags('audio')
 @Controller('v1/audio')
 @ApiExtraModels(AudioTranscriptionResponseDto, AudioTranscriptionVerboseResponseDto, TranscriptionSegmentDto)
 export class AudioTranscriptionsController {
-  constructor(private readonly speechToText: SpeechToTextService, private readonly diarization: TranscribeAudioService) {}
+  constructor(private readonly speechToText: SpeechToTextService, private readonly transcribeAudio: TranscribeAudioService) {}
 
   @Post('transcriptions')
   @UseInterceptors(FileInterceptor('file'))
@@ -25,18 +27,19 @@ export class AudioTranscriptionsController {
       required: ['file'],
       properties: {
         file: { type: 'string', format: 'binary', description: 'Audio file to transcribe' },
-        model: { type: 'string', description: 'Whisper model name', example: 'Systran/faster-whisper-small' },
+        model: { type: 'string', description: 'Whisper model name (legacy=true only)', example: 'Systran/faster-whisper-small' },
         language: { type: 'string', description: 'ISO 639-1 language code', example: 'en' },
-        diarization: { type: 'boolean', description: 'Enable speaker diarization (routes to transcribe-audio service)', default: false },
+        diarization: { type: 'boolean', description: 'Enable speaker diarization — returns verbose_json with per-segment speaker labels. Mutually exclusive with legacy.', default: false },
+        legacy: { type: 'boolean', description: 'Use legacy speaches (faster-whisper) backend. Returns plain {text}. Mutually exclusive with diarization.', default: false },
         min_speakers: { type: 'integer', description: 'Minimum speaker count hint (diarization=true only)', example: 2 },
         max_speakers: { type: 'integer', description: 'Maximum speaker count hint (diarization=true only)', example: 3 },
       },
     },
   })
-  @ApiOperation({ summary: 'Transcribe audio to text. With diarization=true, returns verbose_json with per-segment speaker labels.' })
+  @ApiOperation({ summary: 'Transcribe audio. Default: transcribe-audio (Whisper large-v3). legacy=true: speaches. diarization=true: transcribe-audio with speaker labels.' })
   @ApiResponse({
     status: 200,
-    description: 'Transcription result — plain {text} when diarization=false, verbose with speakers when diarization=true',
+    description: 'Plain {text} by default or with legacy=true; verbose response with speaker segments when diarization=true',
     schema: {
       oneOf: [
         { $ref: getSchemaPath(AudioTranscriptionResponseDto) },
@@ -50,7 +53,7 @@ export class AudioTranscriptionsController {
     req.on('close', () => ac.abort());
     try {
       if (body.diarization) {
-        const verbose = await this.diarization.transcribeWithDiarization(file, {
+        const verbose = await this.transcribeAudio.transcribeWithDiarization(file, {
           language: body.language,
           min_speakers: body.min_speakers,
           max_speakers: body.max_speakers,
@@ -58,8 +61,13 @@ export class AudioTranscriptionsController {
         res.status(HttpStatus.OK).json(verbose);
         return;
       }
-      const text = await this.speechToText.transcribe(file, body.model, body.language);
-      res.status(HttpStatus.OK).json({ text });
+      if (body.legacy) {
+        const text = await this.speechToText.transcribe(file, body.model, body.language);
+        res.status(HttpStatus.OK).json({ text });
+        return;
+      }
+      const result = await this.transcribeAudio.transcribeSimple(file, { language: body.language }, ac.signal);
+      res.status(HttpStatus.OK).json(result);
     } catch (e: any) {
       if (ac.signal.aborted) return;
       console.error('[AudioTranscriptionsController] transcribe error:', e?.message ?? e);

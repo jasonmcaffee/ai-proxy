@@ -41,6 +41,7 @@ export interface TranscribeRequest {
     model?: string;
     language?: string;
     diarization?: boolean;
+    legacy?: boolean;
     minSpeakers?: number;
     maxSpeakers?: number;
 }
@@ -191,6 +192,10 @@ export class AudioApi extends runtime.BaseAPI {
             formParams.append('diarization', requestParameters['diarization'] as any);
         }
 
+        if (requestParameters['legacy'] != null) {
+            formParams.append('legacy', requestParameters['legacy'] as any);
+        }
+
         if (requestParameters['minSpeakers'] != null) {
             formParams.append('min_speakers', requestParameters['minSpeakers'] as any);
         }
@@ -212,7 +217,7 @@ export class AudioApi extends runtime.BaseAPI {
     }
 
     /**
-     * Transcribe audio to text. With diarization=true, returns verbose_json with per-segment speaker labels.
+     * Transcribe audio. Default: transcribe-audio (Whisper large-v3). legacy=true: speaches. diarization=true: transcribe-audio with speaker labels.
      */
     async transcribeRaw(requestParameters: TranscribeRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Transcribe200Response>> {
         const requestOptions = await this.transcribeRequestOpts(requestParameters);
@@ -222,10 +227,10 @@ export class AudioApi extends runtime.BaseAPI {
     }
 
     /**
-     * Transcribe audio to text. With diarization=true, returns verbose_json with per-segment speaker labels.
+     * Transcribe audio. Default: transcribe-audio (Whisper large-v3). legacy=true: speaches. diarization=true: transcribe-audio with speaker labels.
      */
-    async transcribe(file: Blob, model?: string, language?: string, diarization?: boolean, minSpeakers?: number, maxSpeakers?: number, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Transcribe200Response> {
-        const response = await this.transcribeRaw({ file: file, model: model, language: language, diarization: diarization, minSpeakers: minSpeakers, maxSpeakers: maxSpeakers }, initOverrides);
+    async transcribe(file: Blob, model?: string, language?: string, diarization?: boolean, legacy?: boolean, minSpeakers?: number, maxSpeakers?: number, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Transcribe200Response> {
+        const response = await this.transcribeRaw({ file: file, model: model, language: language, diarization: diarization, legacy: legacy, minSpeakers: minSpeakers, maxSpeakers: maxSpeakers }, initOverrides);
         return await response.value();
     }
 
