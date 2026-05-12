@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class AudioSpeechRequestDto {
   @ApiProperty({ description: 'Text to synthesize' })
@@ -26,6 +26,18 @@ export class AudioSpeechRequestDto {
   @IsOptional()
   @IsNumber()
   speed?: number;
+
+  @ApiPropertyOptional({ description: 'Chatterbox cfg_weight (0.0–1.0); only used on the default (non-legacy) path', example: 0.5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0.0)
+  @Max(1.0)
+  exaggeration?: number;
+
+  @ApiPropertyOptional({ description: 'Route to the legacy speaches backend instead of Chatterbox', example: false })
+  @IsOptional()
+  @IsBoolean()
+  legacy?: boolean;
 }
 
 export class AudioSpeechStreamChunkDto {

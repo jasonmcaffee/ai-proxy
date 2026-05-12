@@ -99,6 +99,10 @@ export type SpeechCreateParamsBase = {
   voice?: string;
   response_format?: string;
   speed?: number;
+  /** Chatterbox cfg_weight (0.0–1.0); only used on the default (non-legacy) path */
+  exaggeration?: number;
+  /** Route to the legacy speaches backend instead of Chatterbox */
+  legacy?: boolean;
 };
 export type SpeechCreateParamsNonStreaming = SpeechCreateParamsBase & { stream?: false };
 export type SpeechCreateParamsStreaming = SpeechCreateParamsBase & { stream: true };

@@ -18,49 +18,59 @@ function isMp3(buf: ArrayBuffer): boolean {
   return isId3 || isSyncWord;
 }
 
-describe('Integration — text to speech (requires proxy on :4141 and speaches on :8000)', () => {
+/**
+ * Returns true when the buffer starts with a WAV RIFF/WAVE header.
+ * @param buf - audio buffer to inspect
+ */
+function isWav(buf: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(buf);
+  return bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 // RIFF
+    && bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45; // WAVE
+}
 
-  // ─── Sync ────────────────────────────────────────────────────────────────────
+describe('Integration — text to speech (requires proxy on :4141, transcribe-audio on :4140, speaches on :8000)', () => {
 
-  describe('TTS1 — basic sync synthesis', () => {
-    it('returns a non-empty mp3 buffer for a simple input', async () => {
+  // ─── Sync (Chatterbox default) ────────────────────────────────────────────────
+
+  describe('TTS1 — basic sync synthesis (Chatterbox)', () => {
+    it('returns a non-empty WAV buffer for a simple input', async () => {
       const input = 'Hello, this is a test.';
       const buf = await openai.audio.speech.create({ input });
 
       expect(buf).toBeDefined();
       expect(buf.byteLength).toBeGreaterThan(1000);
-      expect(isMp3(buf)).toBe(true);
+      expect(isWav(buf)).toBe(true);
 
-      writeFileSync(join(RESULTS_DIR, 'tts1-basic.mp3'), Buffer.from(buf));
+      writeFileSync(join(RESULTS_DIR, 'tts1-basic.wav'), Buffer.from(buf));
       console.log(`[TTS1] generated ${buf.byteLength} bytes`);
     }, 60000);
   });
 
-  describe('TTS2 — explicit model/voice/format/speed', () => {
-    it('accepts all optional params and returns audio', async () => {
+  describe('TTS2 — explicit voice + exaggeration params (Chatterbox)', () => {
+    it('accepts Chatterbox voice and exaggeration and returns WAV', async () => {
       const input = 'Testing explicit parameters.';
       const buf = await openai.audio.speech.create({
         input,
-        model: 'hexgrad/Kokoro-82M',
-        voice: 'af_sky',
-        response_format: 'mp3',
-        speed: 1,
+        voice: 'dave',
+        response_format: 'wav',
+        exaggeration: 0.6,
       });
 
       expect(buf.byteLength).toBeGreaterThan(1000);
-      writeFileSync(join(RESULTS_DIR, 'tts2-explicit-params.mp3'), Buffer.from(buf));
+      expect(isWav(buf)).toBe(true);
+      writeFileSync(join(RESULTS_DIR, 'tts2-explicit-params.wav'), Buffer.from(buf));
       console.log(`[TTS2] generated ${buf.byteLength} bytes`);
     }, 60000);
   });
 
-  describe('TTS3 — sync round-trip TTS → STT', () => {
-    it('produces intelligible audio that STT can recover', async () => {
+  describe('TTS3 — sync round-trip TTS → STT (Chatterbox)', () => {
+    it('produces intelligible WAV audio that STT can recover', async () => {
       const input = 'Hello, this is a test of the national broadcasting system.';
       const buf = await openai.audio.speech.create({ input });
 
-      writeFileSync(join(RESULTS_DIR, 'tts3-roundtrip.mp3'), Buffer.from(buf));
+      writeFileSync(join(RESULTS_DIR, 'tts3-roundtrip.wav'), Buffer.from(buf));
 
-      const audioBlob = new Blob([buf], { type: 'audio/mpeg' });
+      const audioBlob = new Blob([buf], { type: 'audio/wav' });
       const transcription = await openai.audio.transcriptions.create({ file: audioBlob });
       console.log(`[TTS3] transcribed: "${transcription.text}"`);
 
@@ -81,10 +91,10 @@ describe('Integration — text to speech (requires proxy on :4141 and speaches o
     }, 15000);
   });
 
-  // ─── Streaming ───────────────────────────────────────────────────────────────
+  // ─── Streaming (Chatterbox default) ──────────────────────────────────────────
 
-  describe('TTS5 — streaming yields one chunk per sentence', () => {
-    it('produces one audio chunk per sentence with mp3 headers', async () => {
+  describe('TTS5 — streaming yields one WAV chunk per sentence (Chatterbox)', () => {
+    it('produces one audio chunk per sentence with WAV headers', async () => {
       const input = 'First sentence. Second sentence. Third sentence.';
       const stream = await openai.audio.speech.create({ input, stream: true });
 
@@ -99,15 +109,14 @@ describe('Integration — text to speech (requires proxy on :4141 and speaches o
       expect(chunks.length).toBe(3);
       for (const chunk of chunks) {
         expect(chunk.audio.byteLength).toBeGreaterThan(100);
-        expect(isMp3(chunk.audio)).toBe(true);
+        expect(isWav(chunk.audio)).toBe(true);
       }
 
-      // Save individual chunks
-      chunks.forEach((c, i) => writeFileSync(join(RESULTS_DIR, `tts5-chunk-${i}.mp3`), Buffer.from(c.audio)));
+      chunks.forEach((c, i) => writeFileSync(join(RESULTS_DIR, `tts5-chunk-${i}.wav`), Buffer.from(c.audio)));
     }, 120000);
   });
 
-  describe('TTS6 — streaming round-trip per chunk', () => {
+  describe('TTS6 — streaming round-trip per chunk (Chatterbox)', () => {
     it('produces intelligible audio for each sentence', async () => {
       const input = 'Hello world. Goodbye world.';
       const stream = await openai.audio.speech.create({ input, stream: true });
@@ -117,25 +126,20 @@ describe('Integration — text to speech (requires proxy on :4141 and speaches o
         chunks.push(chunk);
       }
 
-      // Concatenate all audio
-      const totalLen = chunks.reduce((acc, c) => acc + c.audio.byteLength, 0);
-      const combined = new Uint8Array(totalLen);
-      let offset = 0;
-      for (const c of chunks) {
-        combined.set(new Uint8Array(c.audio), offset);
-        offset += c.audio.byteLength;
+      // Transcribe each chunk individually (WAV files cannot be naively concatenated)
+      const allText: string[] = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const audioBlob = new Blob([chunks[i].audio], { type: 'audio/wav' });
+        const t = await openai.audio.transcriptions.create({ file: audioBlob });
+        allText.push(normalizeText(t.text));
+        writeFileSync(join(RESULTS_DIR, `tts6-chunk-${i}.wav`), Buffer.from(chunks[i].audio));
       }
-      writeFileSync(join(RESULTS_DIR, 'tts6-combined.mp3'), Buffer.from(combined.buffer));
 
-      // Transcribe combined
-      const audioBlob = new Blob([combined.buffer], { type: 'audio/mpeg' });
-      const transcription = await openai.audio.transcriptions.create({ file: audioBlob });
-      console.log(`[TTS6] transcribed: "${transcription.text}"`);
-
-      const normalized = normalizeText(transcription.text);
-      expect(normalized).toContain('hello world');
-      expect(normalized).toContain('goodbye world');
-    }, 120000);
+      const combined = allText.join(' ');
+      console.log(`[TTS6] combined transcription: "${combined}"`);
+      expect(combined).toContain('hello world');
+      expect(combined).toContain('goodbye world');
+    }, 180000);
   });
 
   describe('TTS7 — streaming abort', () => {
@@ -161,23 +165,21 @@ describe('Integration — text to speech (requires proxy on :4141 and speaches o
     }, 60000);
   });
 
-  describe('TTS8 — streaming mid-stream error surfaces', () => {
-    it('throws an error for an unknown voice', async () => {
+  describe('TTS8 — streaming error handling (unknown voice)', () => {
+    it('surfaces an error for an unknown voice', async () => {
       const res = await fetch(`${BASE_URL}/v1/audio/speech/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input: 'Test error handling.', voice: 'not_a_real_voice_xyz' }),
       });
 
-      // Server sends SSE headers first, then an error event — or it might return 500 before headers flush
-      // depending on speaches error timing. Accept either:
+      // Server sends SSE headers first, then an error event — or it might return non-200 before headers flush
       if (!res.ok) {
         console.log(`[TTS8] server returned ${res.status} before SSE`);
         expect(res.status).toBeGreaterThanOrEqual(400);
         return;
       }
 
-      // Read the stream and expect an error event or rejection
       let errorThrown = false;
       try {
         const stream = sseToSpeechChunksRaw(res);
@@ -188,10 +190,59 @@ describe('Integration — text to speech (requires proxy on :4141 and speaches o
         expect(e.message).toBeTruthy();
       }
 
-      // speaches may silently return a default voice if the requested voice is unknown;
-      // in that case the stream completes without error which is also acceptable
       console.log(`[TTS8] errorThrown=${errorThrown}`);
     }, 60000);
+  });
+
+  // ─── Legacy speaches path ────────────────────────────────────────────────────
+
+  describe('TTS9 — legacy flag routes to speaches (MP3)', () => {
+    it('returns MP3 when legacy:true is passed', async () => {
+      const res = await fetch(`${BASE_URL}/v1/audio/speech`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: 'Hello from the legacy path.', legacy: true }),
+      });
+
+      expect(res.status).toBe(200);
+      const buf = await res.arrayBuffer();
+      expect(buf.byteLength).toBeGreaterThan(1000);
+      expect(isMp3(buf)).toBe(true);
+      writeFileSync(join(RESULTS_DIR, 'tts9-legacy.mp3'), Buffer.from(buf));
+      console.log(`[TTS9] legacy generated ${buf.byteLength} bytes`);
+    }, 60000);
+  });
+
+  // ─── Voices endpoint ─────────────────────────────────────────────────────────
+
+  describe('TTS10 — GET /v1/audio/voices', () => {
+    it('returns a list of voices with id, language, and gender', async () => {
+      const res = await fetch(`${BASE_URL}/v1/audio/voices`);
+      expect(res.status).toBe(200);
+      const data = await res.json() as { voices: Array<{ id: string; language: string; gender: string }> };
+      console.log(`[TTS10] voices: ${JSON.stringify(data.voices)}`);
+      expect(Array.isArray(data.voices)).toBe(true);
+      expect(data.voices.length).toBeGreaterThan(0);
+      for (const v of data.voices) {
+        expect(typeof v.id).toBe('string');
+        expect(typeof v.language).toBe('string');
+        expect(typeof v.gender).toBe('string');
+      }
+    }, 15000);
+  });
+
+  // ─── Unknown voice ───────────────────────────────────────────────────────────
+
+  describe('TTS11 — unknown voice returns 404', () => {
+    it('returns HTTP 404 when requesting synthesis with an unknown voice', async () => {
+      const res = await fetch(`${BASE_URL}/v1/audio/speech`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: 'Test voice error.', voice: 'not_a_real_voice_xyz_999' }),
+      });
+      console.log(`[TTS11] status: ${res.status}`);
+      expect(res.status).toBe(404);
+    }, 15000);
   });
 
 });

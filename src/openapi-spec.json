@@ -172,6 +172,21 @@
         ]
       }
     },
+    "/v1/audio/voices": {
+      "get": {
+        "operationId": "listVoices",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Array of available voices with id, language, and gender"
+          }
+        },
+        "summary": "List voices available from the Chatterbox TTS engine",
+        "tags": [
+          "audio"
+        ]
+      }
+    },
     "/v1/audio/speech": {
       "post": {
         "operationId": "speak",
@@ -190,7 +205,7 @@
           "200": {
             "description": "Binary audio body",
             "content": {
-              "audio/mpeg": {
+              "audio/wav": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
@@ -201,11 +216,14 @@
           "400": {
             "description": "Missing or invalid input"
           },
+          "404": {
+            "description": "Unknown voice"
+          },
           "500": {
             "description": "Speech synthesis failed"
           }
         },
-        "summary": "Generate speech audio from text via speaches (sync)",
+        "summary": "Generate speech audio from text (default: Chatterbox WAV; legacy:true → speaches MP3)",
         "tags": [
           "audio"
         ]
@@ -237,7 +255,7 @@
             }
           }
         },
-        "summary": "Generate speech audio sentence-by-sentence over SSE",
+        "summary": "Generate speech audio sentence-by-sentence over SSE (default: Chatterbox; legacy:true → speaches)",
         "tags": [
           "audio"
         ]
@@ -767,6 +785,16 @@
             "type": "number",
             "description": "Speech speed (0.25–4.0)",
             "example": 1
+          },
+          "exaggeration": {
+            "type": "number",
+            "description": "Chatterbox cfg_weight (0.0–1.0); only used on the default (non-legacy) path",
+            "example": 0.5
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "Route to the legacy speaches backend instead of Chatterbox",
+            "example": false
           }
         },
         "required": [

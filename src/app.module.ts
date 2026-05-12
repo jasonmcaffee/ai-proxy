@@ -16,6 +16,7 @@ import { ComfyUIClientService } from './services/imageCreator/comfyUIClient.serv
 import { SpeechToTextService } from './services/speechToText.service';
 import { TextToSpeechService } from './services/textToSpeech.service';
 import { TranscribeAudioService } from './services/transcribeAudio.service';
+import { TranscribeAudioTtsService } from './services/transcribeAudioTts.service';
 
 @Module({
   imports: [],
@@ -38,6 +39,7 @@ import { TranscribeAudioService } from './services/transcribeAudio.service';
     SpeechToTextService,
     TextToSpeechService,
     TranscribeAudioService,
+    TranscribeAudioTtsService,
     TranscriptionsRealtimeGateway,
   ],
 })

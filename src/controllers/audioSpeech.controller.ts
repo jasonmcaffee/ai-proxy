@@ -1,8 +1,9 @@
-import { Body, Controller, HttpStatus, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpStatus, Post, Req, Res } from '@nestjs/common';
 import { ApiBody, ApiExtraModels, ApiOperation, ApiResponse, ApiTags, getSchemaPath } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { AudioSpeechRequestDto, AudioSpeechStreamChunkDto } from '../models/audioSpeech.dto';
 import { TextToSpeechService, TtsOpts } from '../services/textToSpeech.service';
+import { ChatterboxOpts, TranscribeAudioTtsService } from '../services/transcribeAudioTts.service';
 
 /**
  * Maps a response_format string to the correct MIME type for the Content-Type header.
@@ -21,7 +22,7 @@ function contentTypeFor(format: string): string {
 }
 
 /**
- * Projects the request DTO to TtsOpts, stripping undefined fields (defaults applied in service).
+ * Projects the request DTO to TtsOpts for the speaches (legacy) path.
  * @param body - validated request DTO
  */
 function ttsOptsFrom(body: AudioSpeechRequestDto): TtsOpts {
@@ -34,36 +35,77 @@ function ttsOptsFrom(body: AudioSpeechRequestDto): TtsOpts {
 }
 
 /**
- * Handles POST /v1/audio/speech (sync) and POST /v1/audio/speech/stream (SSE) using speaches Kokoro-82M.
+ * Projects the request DTO to ChatterboxOpts for the default Chatterbox path.
+ * @param body - validated request DTO
+ */
+function chatterboxOptsFrom(body: AudioSpeechRequestDto): ChatterboxOpts {
+  return {
+    voice: body.voice,
+    exaggeration: body.exaggeration,
+  };
+}
+
+/**
+ * Resolves HTTP status code from a thrown error, falling back to the provided default.
+ * @param e - error object, possibly with a statusCode property
+ * @param fallback - default status code if none is present
+ */
+function statusCodeFrom(e: any, fallback: number): number {
+  return typeof e?.statusCode === 'number' ? e.statusCode : fallback;
+}
+
+/**
+ * Handles TTS endpoints: sync speech, SSE streaming, and voice listing.
+ * Default path routes to transcribe-audio (Chatterbox). Pass legacy:true for speaches (Kokoro-82M).
  */
 @ApiTags('audio')
 @ApiExtraModels(AudioSpeechStreamChunkDto)
 @Controller('v1/audio')
 export class AudioSpeechController {
-  constructor(private readonly tts: TextToSpeechService) {}
+  constructor(private readonly tts: TextToSpeechService, private readonly chatterboxTts: TranscribeAudioTtsService) {}
+
+  @Get('voices')
+  @ApiOperation({ summary: 'List voices available from the Chatterbox TTS engine' })
+  @ApiResponse({ status: 200, description: 'Array of available voices with id, language, and gender' })
+  async listVoices(@Res() res: Response): Promise<void> {
+    try {
+      const voices = await this.chatterboxTts.listVoices();
+      res.status(HttpStatus.OK).json({ voices });
+    } catch (e: any) {
+      console.error('[AudioSpeechController] listVoices error:', e?.message ?? e);
+      res.status(statusCodeFrom(e, HttpStatus.BAD_GATEWAY)).json({ error: { message: e?.message ?? 'Failed to list voices', type: 'tts_error' } });
+    }
+  }
 
   @Post('speech')
-  @ApiOperation({ summary: 'Generate speech audio from text via speaches (sync)' })
+  @ApiOperation({ summary: 'Generate speech audio from text (default: Chatterbox WAV; legacy:true → speaches MP3)' })
   @ApiBody({ type: AudioSpeechRequestDto })
-  @ApiResponse({ status: 200, description: 'Binary audio body', content: { 'audio/mpeg': { schema: { type: 'string', format: 'binary' } } } })
+  @ApiResponse({ status: 200, description: 'Binary audio body', content: { 'audio/wav': { schema: { type: 'string', format: 'binary' } } } })
   @ApiResponse({ status: 400, description: 'Missing or invalid input' })
+  @ApiResponse({ status: 404, description: 'Unknown voice' })
   @ApiResponse({ status: 500, description: 'Speech synthesis failed' })
   async speak(@Body() body: AudioSpeechRequestDto, @Req() req: Request, @Res() res: Response): Promise<void> {
     const ac = new AbortController();
     req.on('close', () => ac.abort());
     try {
-      const buf = await this.tts.synthesize(body.input, ttsOptsFrom(body), ac.signal);
-      res.setHeader('Content-Type', contentTypeFor(body.response_format ?? 'mp3'));
-      res.status(HttpStatus.OK).send(buf);
+      if (body.legacy) {
+        const buf = await this.tts.synthesize(body.input, ttsOptsFrom(body), ac.signal);
+        res.setHeader('Content-Type', contentTypeFor(body.response_format ?? 'mp3'));
+        res.status(HttpStatus.OK).send(buf);
+      } else {
+        const buf = await this.chatterboxTts.synthesize(body.input, chatterboxOptsFrom(body), ac.signal);
+        res.setHeader('Content-Type', 'audio/wav');
+        res.status(HttpStatus.OK).send(buf);
+      }
     } catch (e: any) {
       if (ac.signal.aborted) return;
       console.error('[AudioSpeechController] speak error:', e?.message ?? e);
-      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ error: { message: e?.message ?? 'Speech synthesis failed', type: 'tts_error' } });
+      res.status(statusCodeFrom(e, HttpStatus.INTERNAL_SERVER_ERROR)).json({ error: { message: e?.message ?? 'Speech synthesis failed', type: 'tts_error' } });
     }
   }
 
   @Post('speech/stream')
-  @ApiOperation({ summary: 'Generate speech audio sentence-by-sentence over SSE' })
+  @ApiOperation({ summary: 'Generate speech audio sentence-by-sentence over SSE (default: Chatterbox; legacy:true → speaches)' })
   @ApiBody({ type: AudioSpeechRequestDto })
   @ApiResponse({ status: 200, description: 'SSE stream of audio chunks', content: { 'text/event-stream': { schema: { $ref: getSchemaPath(AudioSpeechStreamChunkDto) } } } })
   async speakStream(@Body() body: AudioSpeechRequestDto, @Req() req: Request, @Res() res: Response): Promise<void> {
@@ -75,8 +117,12 @@ export class AudioSpeechController {
     const ac = new AbortController();
     req.on('close', () => ac.abort());
 
+    const stream = body.legacy
+      ? this.tts.synthesizeStream(body.input, ttsOptsFrom(body), ac.signal)
+      : this.chatterboxTts.synthesizeStream(body.input, chatterboxOptsFrom(body), ac.signal);
+
     try {
-      for await (const { audio, sentence } of this.tts.synthesizeStream(body.input, ttsOptsFrom(body), ac.signal)) {
+      for await (const { audio, sentence } of stream) {
         if (ac.signal.aborted) break;
         const payload = JSON.stringify({ audio: audio.toString('base64'), sentence });
         res.write(`data: ${payload}\n\n`);
