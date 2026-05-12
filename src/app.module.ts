@@ -5,6 +5,7 @@ import { ImagesController } from './controllers/images.controller';
 import { AudioTranscriptionsController } from './controllers/audioTranscriptions.controller';
 import { AudioSpeechController } from './controllers/audioSpeech.controller';
 import { VideosController } from './controllers/videos.controller';
+import { TranscriptionsRealtimeGateway } from './controllers/transcriptionsRealtime.gateway';
 import { LlamaForwarderService } from './services/llamaForwarder.service';
 import { ContextCompressorService } from './services/contextCompressor.service';
 import { RetryExecutorService } from './services/retryExecutor.service';
@@ -14,6 +15,7 @@ import { ImageCreatorService } from './services/imageCreator/imageCreator.servic
 import { ComfyUIClientService } from './services/imageCreator/comfyUIClient.service';
 import { SpeechToTextService } from './services/speechToText.service';
 import { TextToSpeechService } from './services/textToSpeech.service';
+import { TranscribeAudioService } from './services/transcribeAudio.service';
 
 @Module({
   imports: [],
@@ -35,6 +37,8 @@ import { TextToSpeechService } from './services/textToSpeech.service';
     ComfyUIClientService,
     SpeechToTextService,
     TextToSpeechService,
+    TranscribeAudioService,
+    TranscriptionsRealtimeGateway,
   ],
 })
 export class AppModule {}

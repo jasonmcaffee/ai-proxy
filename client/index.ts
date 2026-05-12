@@ -1,5 +1,6 @@
 import { AudioApi, Configuration, ModelsApi } from './generated';
-import type { AudioTranscriptionResponse } from './generated';
+import type { AudioTranscriptionResponse, AudioTranscriptionVerboseResponse } from './generated';
+import { io as ioClient } from 'socket.io-client';
 import type {
   ChatCompletionCreateParamsNonStreaming,
   ChatCompletionCreateParamsStreaming,
@@ -202,18 +203,159 @@ class Speech {
 
 // ─── Transcription types ──────────────────────────────────────────────────────
 
-export type TranscriptionCreateParams = { file: Blob; model?: string; language?: string };
+export type TranscriptionCreateParams = { file: Blob; model?: string; language?: string; diarization?: false };
+export type TranscriptionCreateParamsDiarized = { file: Blob; model?: string; language?: string; diarization: true; min_speakers?: number; max_speakers?: number };
+
+/** One committed segment returned by the realtime diarization stream. */
+export type TranscriptionSegment = { text: string; start: number; end: number; speaker: string; segment_id?: number };
+
+/**
+ * Manages a real-time diarized transcription session over socket.io.
+ * Call sendChunk() with 5-second PCM16 mono 16kHz audio buffers, then commit() when done.
+ */
+export class RealtimeSession {
+  private readonly socket: ReturnType<typeof ioClient>;
+  private readonly segmentListeners: Array<(seg: TranscriptionSegment) => void> = [];
+  private readonly doneListeners: Array<() => void> = [];
+  private readonly errorListeners: Array<(err: Error) => void> = [];
+
+  constructor(baseURL: string, opts?: { speakerHint?: { min: number; max: number } }) {
+    this.socket = ioClient(baseURL, {
+      path: '/v1/audio/transcriptions/realtime',
+      transports: ['websocket'],
+    });
+    this.socket.on('connect', () => {
+      this.socket.emit('session.update', { speaker_hint: opts?.speakerHint ?? { min: 1, max: 5 } });
+    });
+    this.socket.on('transcription.committed', (seg: TranscriptionSegment) => {
+      this.segmentListeners.forEach((l) => l(seg));
+    });
+    this.socket.on('session.done', () => {
+      this.doneListeners.forEach((l) => l());
+    });
+    this.socket.on('error', (err: { message?: string }) => {
+      const error = new Error(err?.message ?? 'realtime transcription error');
+      this.errorListeners.forEach((l) => l(error));
+    });
+    this.socket.on('transcription.speaker_remapped', (payload: { from: string; to: string }) => {
+      this._speakerRemapCb?.(payload.from, payload.to);
+    });
+  }
+
+  private _speakerRemapCb?: (from: string, to: string) => void;
+
+  /**
+   * Sends a PCM16 mono 16kHz audio chunk to the server. Base64-encodes it automatically.
+   * Uses chunked conversion to avoid call stack overflow with large buffers.
+   * @param pcm16 - 5-second chunk of PCM16 audio (160,000 bytes at 16kHz)
+   */
+  sendChunk(pcm16: ArrayBuffer): void {
+    const bytes = new Uint8Array(pcm16);
+    let binary = '';
+    const step = 4096;
+    for (let i = 0; i < bytes.length; i += step) {
+      binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + step, bytes.length)));
+    }
+    this.socket.emit('input_audio_buffer.append', { format: 'pcm16_base64', audio: btoa(binary) });
+  }
+
+  /** Flushes remaining audio and signals the end of the audio stream. */
+  commit(): void {
+    this.socket.emit('input_audio_buffer.commit');
+  }
+
+  /** Closes the session without flushing remaining audio. */
+  end(): void {
+    this.socket.emit('session.end');
+    this.socket.disconnect();
+  }
+
+  /**
+   * Registers a callback for speaker remap notifications.
+   * @param cb - called when the server reassigns speaker IDs
+   */
+  onSpeakerRemap(cb: (from: string, to: string) => void): void {
+    this._speakerRemapCb = cb;
+  }
+
+  /**
+   * Returns an AsyncIterable of committed segments for the lifetime of this session.
+   * Resolves when session.done is received or an error occurs.
+   */
+  segments(): AsyncIterable<TranscriptionSegment> {
+    const queue: TranscriptionSegment[] = [];
+    let resolve: (() => void) | null = null;
+    let done = false;
+    let error: Error | null = null;
+
+    this.segmentListeners.push((seg) => {
+      queue.push(seg);
+      resolve?.();
+      resolve = null;
+    });
+    this.doneListeners.push(() => {
+      done = true;
+      resolve?.();
+      resolve = null;
+    });
+    this.errorListeners.push((err) => {
+      error = err;
+      resolve?.();
+      resolve = null;
+    });
+
+    return {
+      [Symbol.asyncIterator]() {
+        return {
+          async next(): Promise<IteratorResult<TranscriptionSegment>> {
+            while (true) {
+              if (queue.length > 0) return { value: queue.shift()!, done: false };
+              if (error) throw error;
+              if (done) return { value: undefined as any, done: true };
+              await new Promise<void>((r) => { resolve = r; });
+            }
+          },
+        };
+      },
+    };
+  }
+}
 
 /** Wraps the generated AudioApi to expose an OpenAI-SDK-compatible transcriptions.create() method. */
 class Transcriptions {
-  constructor(private readonly audioApi: AudioApi) {}
+  constructor(private readonly audioApi: AudioApi, private readonly baseURL: string) {}
 
   /**
    * Sends an audio file to the proxy for transcription and returns the result.
-   * @param params - file (Blob), optional model and language
+   * Diarized path uses raw fetch to avoid the generated client's oneOf discriminator
+   * matching AudioTranscriptionResponse first and stripping segments.
+   * @param params - file (Blob), optional model, language, diarization, min_speakers, max_speakers
    */
-  async create(params: TranscriptionCreateParams): Promise<AudioTranscriptionResponse> {
-    return this.audioApi.transcribe(params.file, params.model, params.language);
+  create(params: TranscriptionCreateParamsDiarized): Promise<AudioTranscriptionVerboseResponse>;
+  create(params: TranscriptionCreateParams): Promise<AudioTranscriptionResponse>;
+  async create(params: TranscriptionCreateParams | TranscriptionCreateParamsDiarized): Promise<AudioTranscriptionResponse | AudioTranscriptionVerboseResponse> {
+    const p = params as any;
+    if (p.diarization) {
+      const form = new FormData();
+      form.append('file', p.file, 'audio');
+      if (p.model) form.append('model', p.model);
+      if (p.language) form.append('language', p.language);
+      form.append('diarization', 'true');
+      if (p.min_speakers !== undefined) form.append('min_speakers', String(p.min_speakers));
+      if (p.max_speakers !== undefined) form.append('max_speakers', String(p.max_speakers));
+      const res = await fetch(`${this.baseURL}/v1/audio/transcriptions`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error(`ai-proxy ${res.status}: ${await res.text()}`);
+      return res.json() as Promise<AudioTranscriptionVerboseResponse>;
+    }
+    return this.audioApi.transcribe(p.file, p.model, p.language) as any;
+  }
+
+  /**
+   * Opens a socket.io session for real-time diarized transcription against the proxy realtime gateway.
+   * @param opts - optional speaker count hints for the upstream diarization service
+   */
+  realtime(opts?: { speakerHint?: { min: number; max: number } }): RealtimeSession {
+    return new RealtimeSession(this.baseURL, opts);
   }
 }
 
@@ -223,7 +365,7 @@ class Audio {
   readonly speech: Speech;
 
   constructor(audioApi: AudioApi, baseURL: string) {
-    this.transcriptions = new Transcriptions(audioApi);
+    this.transcriptions = new Transcriptions(audioApi, baseURL);
     this.speech = new Speech(baseURL);
   }
 }
@@ -308,4 +450,4 @@ export type { ProxyExtensions } from './proxyExtensions';
 
 // Re-export generated API classes for lower-level access if needed.
 export { Configuration, ModelsApi, ChatCompletionsApi, ImagesApi, AudioApi } from './generated';
-export type { AudioTranscriptionResponse } from './generated';
+export type { AudioTranscriptionResponse, AudioTranscriptionVerboseResponse, TranscriptionSegment as GeneratedTranscriptionSegment } from './generated';

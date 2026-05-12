@@ -118,6 +118,21 @@
                     "type": "string",
                     "description": "ISO 639-1 language code",
                     "example": "en"
+                  },
+                  "diarization": {
+                    "type": "boolean",
+                    "description": "Enable speaker diarization (routes to transcribe-audio service)",
+                    "default": false
+                  },
+                  "min_speakers": {
+                    "type": "integer",
+                    "description": "Minimum speaker count hint (diarization=true only)",
+                    "example": 2
+                  },
+                  "max_speakers": {
+                    "type": "integer",
+                    "description": "Maximum speaker count hint (diarization=true only)",
+                    "example": 3
                   }
                 }
               }
@@ -126,11 +141,18 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Transcription result — plain {text} when diarization=false, verbose with speakers when diarization=true",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AudioTranscriptionResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/AudioTranscriptionResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AudioTranscriptionVerboseResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -139,7 +161,7 @@
             "description": "Transcription failed"
           }
         },
-        "summary": "Transcribe audio to text using speaches (faster-whisper)",
+        "summary": "Transcribe audio to text. With diarization=true, returns verbose_json with per-segment speaker labels.",
         "tags": [
           "audio"
         ]
@@ -614,6 +636,87 @@
         },
         "required": [
           "text"
+        ]
+      },
+      "TranscriptionSegment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Segment index"
+          },
+          "start": {
+            "type": "number",
+            "description": "Segment start time in seconds"
+          },
+          "end": {
+            "type": "number",
+            "description": "Segment end time in seconds"
+          },
+          "text": {
+            "type": "string",
+            "description": "Transcribed text for this segment"
+          },
+          "speaker": {
+            "type": "string",
+            "description": "Speaker identifier",
+            "example": "SPEAKER_00"
+          }
+        },
+        "required": [
+          "id",
+          "start",
+          "end",
+          "text",
+          "speaker"
+        ]
+      },
+      "AudioTranscriptionVerboseResponse": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Task type",
+            "example": "transcribe"
+          },
+          "language": {
+            "type": "string",
+            "description": "Detected or specified language"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Total audio duration in seconds"
+          },
+          "text": {
+            "type": "string",
+            "description": "Full concatenated transcript text"
+          },
+          "segments": {
+            "description": "Per-segment transcription with speaker labels",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranscriptionSegment"
+            }
+          },
+          "speakers": {
+            "example": [
+              "SPEAKER_00",
+              "SPEAKER_01"
+            ],
+            "description": "All speaker IDs detected in the audio",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "task",
+          "language",
+          "duration",
+          "text",
+          "segments",
+          "speakers"
         ]
       },
       "AudioSpeechStreamChunk": {

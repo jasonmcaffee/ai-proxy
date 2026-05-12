@@ -8,6 +8,7 @@ docs/AudioApi.md
 docs/AudioSpeechRequest.md
 docs/AudioSpeechStreamChunk.md
 docs/AudioTranscriptionResponse.md
+docs/AudioTranscriptionVerboseResponse.md
 docs/ChatChoice.md
 docs/ChatCompletionRequest.md
 docs/ChatCompletionResponse.md
@@ -25,12 +26,15 @@ docs/ModelsListResponse.md
 docs/ToolCall.md
 docs/ToolDefinition.md
 docs/ToolFunction.md
+docs/Transcribe200Response.md
+docs/TranscriptionSegment.md
 docs/Usage.md
 docs/VideosApi.md
 index.ts
 models/AudioSpeechRequest.ts
 models/AudioSpeechStreamChunk.ts
 models/AudioTranscriptionResponse.ts
+models/AudioTranscriptionVerboseResponse.ts
 models/ChatChoice.ts
 models/ChatCompletionRequest.ts
 models/ChatCompletionResponse.ts
@@ -45,6 +49,8 @@ models/ModelsListResponse.ts
 models/ToolCall.ts
 models/ToolDefinition.ts
 models/ToolFunction.ts
+models/Transcribe200Response.ts
+models/TranscriptionSegment.ts
 models/Usage.ts
 models/index.ts
 runtime.ts

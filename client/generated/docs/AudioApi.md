@@ -6,7 +6,7 @@ All URIs are relative to *http://localhost*
 |------------- | ------------- | -------------|
 | [**speak**](AudioApi.md#speak) | **POST** /v1/audio/speech | Generate speech audio from text via speaches (sync) |
 | [**speakStream**](AudioApi.md#speakstream) | **POST** /v1/audio/speech/stream | Generate speech audio sentence-by-sentence over SSE |
-| [**transcribe**](AudioApi.md#transcribe) | **POST** /v1/audio/transcriptions | Transcribe audio to text using speaches (faster-whisper) |
+| [**transcribe**](AudioApi.md#transcribe) | **POST** /v1/audio/transcriptions | Transcribe audio to text. With diarization&#x3D;true, returns verbose_json with per-segment speaker labels. |
 
 
 
@@ -144,9 +144,9 @@ No authorization required
 
 ## transcribe
 
-> AudioTranscriptionResponse transcribe(file, model, language)
+> Transcribe200Response transcribe(file, model, language, diarization, minSpeakers, maxSpeakers)
 
-Transcribe audio to text using speaches (faster-whisper)
+Transcribe audio to text. With diarization&#x3D;true, returns verbose_json with per-segment speaker labels.
 
 ### Example
 
@@ -168,6 +168,12 @@ async function example() {
     model: model_example,
     // string | ISO 639-1 language code (optional)
     language: language_example,
+    // boolean | Enable speaker diarization (routes to transcribe-audio service) (optional)
+    diarization: true,
+    // number | Minimum speaker count hint (diarization=true only) (optional)
+    minSpeakers: 56,
+    // number | Maximum speaker count hint (diarization=true only) (optional)
+    maxSpeakers: 56,
   } satisfies TranscribeRequest;
 
   try {
@@ -190,10 +196,13 @@ example().catch(console.error);
 | **file** | `Blob` | Audio file to transcribe | [Defaults to `undefined`] |
 | **model** | `string` | Whisper model name | [Optional] [Defaults to `undefined`] |
 | **language** | `string` | ISO 639-1 language code | [Optional] [Defaults to `undefined`] |
+| **diarization** | `boolean` | Enable speaker diarization (routes to transcribe-audio service) | [Optional] [Defaults to `false`] |
+| **minSpeakers** | `number` | Minimum speaker count hint (diarization&#x3D;true only) | [Optional] [Defaults to `undefined`] |
+| **maxSpeakers** | `number` | Maximum speaker count hint (diarization&#x3D;true only) | [Optional] [Defaults to `undefined`] |
 
 ### Return type
 
-[**AudioTranscriptionResponse**](AudioTranscriptionResponse.md)
+[**Transcribe200Response**](Transcribe200Response.md)
 
 ### Authorization
 
@@ -208,7 +217,7 @@ No authorization required
 ### HTTP response details
 | Status code | Description | Response headers |
 |-------------|-------------|------------------|
-| **200** |  |  -  |
+| **200** | Transcription result — plain {text} when diarization&#x3D;false, verbose with speakers when diarization&#x3D;true |  -  |
 | **500** | Transcription failed |  -  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)

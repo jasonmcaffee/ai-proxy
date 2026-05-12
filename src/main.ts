@@ -4,9 +4,11 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
 import { writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.useWebSocketAdapter(new IoAdapter(app));
   app.use(require('express').json({ limit: '500mb' }));
 
   app.enableCors({

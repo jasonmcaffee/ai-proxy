@@ -3,6 +3,7 @@
 export * from './AudioSpeechRequest';
 export * from './AudioSpeechStreamChunk';
 export * from './AudioTranscriptionResponse';
+export * from './AudioTranscriptionVerboseResponse';
 export * from './ChatChoice';
 export * from './ChatCompletionRequest';
 export * from './ChatCompletionResponse';
@@ -17,4 +18,6 @@ export * from './ModelsListResponse';
 export * from './ToolCall';
 export * from './ToolDefinition';
 export * from './ToolFunction';
+export * from './Transcribe200Response';
+export * from './TranscriptionSegment';
 export * from './Usage';

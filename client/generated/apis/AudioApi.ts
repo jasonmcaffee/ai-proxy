@@ -17,15 +17,15 @@ import * as runtime from '../runtime';
 import type {
   AudioSpeechRequest,
   AudioSpeechStreamChunk,
-  AudioTranscriptionResponse,
+  Transcribe200Response,
 } from '../models/index';
 import {
     AudioSpeechRequestFromJSON,
     AudioSpeechRequestToJSON,
     AudioSpeechStreamChunkFromJSON,
     AudioSpeechStreamChunkToJSON,
-    AudioTranscriptionResponseFromJSON,
-    AudioTranscriptionResponseToJSON,
+    Transcribe200ResponseFromJSON,
+    Transcribe200ResponseToJSON,
 } from '../models/index';
 
 export interface SpeakRequest {
@@ -40,6 +40,9 @@ export interface TranscribeRequest {
     file: Blob;
     model?: string;
     language?: string;
+    diarization?: boolean;
+    minSpeakers?: number;
+    maxSpeakers?: number;
 }
 
 /**
@@ -184,6 +187,18 @@ export class AudioApi extends runtime.BaseAPI {
             formParams.append('language', requestParameters['language'] as any);
         }
 
+        if (requestParameters['diarization'] != null) {
+            formParams.append('diarization', requestParameters['diarization'] as any);
+        }
+
+        if (requestParameters['minSpeakers'] != null) {
+            formParams.append('min_speakers', requestParameters['minSpeakers'] as any);
+        }
+
+        if (requestParameters['maxSpeakers'] != null) {
+            formParams.append('max_speakers', requestParameters['maxSpeakers'] as any);
+        }
+
 
         let urlPath = `/v1/audio/transcriptions`;
 
@@ -197,20 +212,20 @@ export class AudioApi extends runtime.BaseAPI {
     }
 
     /**
-     * Transcribe audio to text using speaches (faster-whisper)
+     * Transcribe audio to text. With diarization=true, returns verbose_json with per-segment speaker labels.
      */
-    async transcribeRaw(requestParameters: TranscribeRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<AudioTranscriptionResponse>> {
+    async transcribeRaw(requestParameters: TranscribeRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Transcribe200Response>> {
         const requestOptions = await this.transcribeRequestOpts(requestParameters);
         const response = await this.request(requestOptions, initOverrides);
 
-        return new runtime.JSONApiResponse(response, (jsonValue) => AudioTranscriptionResponseFromJSON(jsonValue));
+        return new runtime.JSONApiResponse(response, (jsonValue) => Transcribe200ResponseFromJSON(jsonValue));
     }
 
     /**
-     * Transcribe audio to text using speaches (faster-whisper)
+     * Transcribe audio to text. With diarization=true, returns verbose_json with per-segment speaker labels.
      */
-    async transcribe(file: Blob, model?: string, language?: string, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<AudioTranscriptionResponse> {
-        const response = await this.transcribeRaw({ file: file, model: model, language: language }, initOverrides);
+    async transcribe(file: Blob, model?: string, language?: string, diarization?: boolean, minSpeakers?: number, maxSpeakers?: number, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Transcribe200Response> {
+        const response = await this.transcribeRaw({ file: file, model: model, language: language, diarization: diarization, minSpeakers: minSpeakers, maxSpeakers: maxSpeakers }, initOverrides);
         return await response.value();
     }
 
