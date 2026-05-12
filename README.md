@@ -19,14 +19,14 @@ Override either with env vars: `LLAMA_BASE_URL`, `COMFYUI_BASE_URL`.
 
 | Environment | Port |
 |---|---|
-| Dev / integration tests | **4142** |
-| Prod (`C:\jason\dev\prod`) | **4141** |
+| Dev / integration tests | **4141** |
+| Prod (`C:\jason\dev\prod`) | **4142** |
 
 ## Quick Start
 
 ```bash
 # Start dev server
-PORT=4142 npx ts-node -r tsconfig-paths/register src/main.ts
+PORT=4141 npx ts-node -r tsconfig-paths/register src/main.ts
 
 # Stop dev server
 npm run stop-service
@@ -94,7 +94,7 @@ If the HTTP client closes the connection before generation completes, the proxy 
 import OpenAI from './client';
 import type { ImageGenerateParams } from './client';
 
-const openai = new OpenAI({ baseURL: 'http://localhost:4142' });
+const openai = new OpenAI({ baseURL: 'http://localhost:4141' });
 
 // Basic generation
 const result = await openai.images.generate({
@@ -141,7 +141,7 @@ const result3 = await openai.images.generate(
 ```mermaid
 flowchart LR
     Client["OpenAI-facade client\n(/client/index.ts)\nor openai SDK"]
-    subgraph Proxy["ai-proxy (NestJS, port 4142/4141)"]
+    subgraph Proxy["ai-proxy (NestJS, port 4141/4142)"]
         ChatCtrl["ChatController\n(POST /v1/chat/completions)"]
         ImgCtrl["ImagesController\n(POST /v1/images/generations)"]
         Compress["ContextCompressorService"]
@@ -315,7 +315,7 @@ The client exposes an OpenAI-SDK-compatible interface. The generated wire types 
 import OpenAI from './client';
 import type { ChatCompletionMessageParam, ChatCompletionTool } from './client';
 
-const openai = new OpenAI({ baseURL: 'http://localhost:4142' });
+const openai = new OpenAI({ baseURL: 'http://localhost:4141' });
 
 // Non-streaming
 const result = await openai.chat.completions.create({
@@ -384,7 +384,7 @@ Integration-first. All integration tests use the `/client` facade (not raw `fetc
 
 ### Integration tests (`tests/integration/`)
 
-**Chat tests** — require dev server on **:4142** and llama.cpp on **:8080**.
+**Chat tests** — require dev server on **:4141** and llama.cpp on **:8080**.
 
 | # | Scenario |
 |---|---|
@@ -400,7 +400,7 @@ Integration-first. All integration tests use the `/client` facade (not raw `fetc
 | I10 | `disableThinking=true` — `reasoning_content` is blank on response |
 | Models | GET /v1/models — returns `object: 'list'` with at least one entry |
 
-**Image tests** — require dev server on **:4142** and ComfyUI on **:8083**. Generated images are saved to `tests/integration/results/images/` (gitignored).
+**Image tests** — require dev server on **:4141** and ComfyUI on **:8083**. Generated images are saved to `tests/integration/results/images/` (gitignored).
 
 | # | Scenario |
 |---|---|

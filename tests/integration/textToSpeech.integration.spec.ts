@@ -3,7 +3,7 @@ import { join } from 'path';
 import OpenAI from '../../client';
 import { normalizeText, wordOverlap } from './_helpers';
 
-const BASE_URL = process.env.PROXY_URL || 'http://localhost:4142';
+const BASE_URL = process.env.PROXY_URL || 'http://localhost:4141';
 const openai = new OpenAI({ baseURL: BASE_URL });
 const RESULTS_DIR = join(__dirname, 'results', 'tts');
 
@@ -18,7 +18,7 @@ function isMp3(buf: ArrayBuffer): boolean {
   return isId3 || isSyncWord;
 }
 
-describe('Integration — text to speech (requires proxy on :4142 and speaches on :8000)', () => {
+describe('Integration — text to speech (requires proxy on :4141 and speaches on :8000)', () => {
 
   // ─── Sync ────────────────────────────────────────────────────────────────────
 

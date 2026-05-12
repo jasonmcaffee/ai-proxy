@@ -2,7 +2,7 @@ import OpenAI from '../../client';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
-const BASE_URL = process.env.PROXY_URL || 'http://localhost:4142';
+const BASE_URL = process.env.PROXY_URL || 'http://localhost:4141';
 const openai = new OpenAI({ baseURL: BASE_URL });
 const RESULTS_DIR = join(__dirname, 'results', 'images');
 
@@ -59,7 +59,7 @@ function isKnownImageFormat(buf: Buffer): boolean {
   return isPng || isJpeg || isWebp;
 }
 
-describe('Integration — image generation (requires proxy on :4142 and ComfyUI on :8083)', () => {
+describe('Integration — image generation (requires proxy on :4141 and ComfyUI on :8083)', () => {
 
   describe('IM1 — basic image generation', () => {
     it('returns a valid base64-encoded image for a simple prompt', async () => {

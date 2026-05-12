@@ -3,7 +3,7 @@ import { join } from 'path';
 import OpenAI, { RealtimeSession } from '../../client';
 import type { AudioTranscriptionVerboseResponse } from '../../client/generated';
 
-const BASE_URL = process.env.PROXY_URL || 'http://localhost:4142';
+const BASE_URL = process.env.PROXY_URL || 'http://localhost:4141';
 const openai = new OpenAI({ baseURL: BASE_URL });
 
 const STT_FIXTURE_PATH = join(__dirname, '..', 'fixtures', 'speech-to-text-test-file.m4a');
@@ -11,7 +11,7 @@ const DIARIZATION_FIXTURE_PATH = join(__dirname, '..', 'fixtures', 'diarization-
 
 const SPEAKER_RE = /^SPEAKER_\d+$/;
 
-describe('Integration — transcription diarization (requires proxy on :4142 and transcribe-audio on :4140)', () => {
+describe('Integration — transcription diarization (requires proxy on :4141 and transcribe-audio on :4140)', () => {
 
   describe('DIA1 — diarization=false is unchanged', () => {
     it('returns plain {text} with no segments when diarization is omitted', async () => {

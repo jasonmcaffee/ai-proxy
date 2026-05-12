@@ -31,7 +31,7 @@ type CreateParams = CreateParamsNonStreaming | CreateParamsStreaming;
 /**
  * POSTs to the proxy's chat completions endpoint with the given params as the JSON body.
  * OpenAI params are already snake_case wire format, so JSON.stringify is correct directly.
- * @param baseURL - proxy base URL (e.g. http://localhost:4142)
+ * @param baseURL - proxy base URL (e.g. http://localhost:4141)
  * @param params - request body
  * @param signal - optional AbortSignal
  */

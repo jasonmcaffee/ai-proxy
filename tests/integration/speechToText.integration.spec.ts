@@ -3,12 +3,12 @@ import { join } from 'path';
 import OpenAI from '../../client';
 import { normalizeText } from './_helpers';
 
-const BASE_URL = process.env.PROXY_URL || 'http://localhost:4142';
+const BASE_URL =  'http://localhost:4141';
 const openai = new OpenAI({ baseURL: BASE_URL });
 const FIXTURE_PATH = join(__dirname, '..', 'fixtures', 'speech-to-text-test-file.m4a');
 const EXPECTED_TEXT = 'Hello, this is a test of the national broadcasting system. I am a cat that is sitting on a red shelf.';
 
-describe('Integration — speech to text (requires proxy on :4142 and speaches on :8000)', () => {
+describe('Integration — speech to text (requires proxy on :4141 and speaches on :8000)', () => {
 
   describe('STT1 — basic audio transcription', () => {
     it('transcribes the fixture m4a file and returns the expected spoken text', async () => {

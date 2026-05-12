@@ -2,7 +2,7 @@
  * Quick smoke-test for ai-proxy image generation.
  * Usage: node scripts/test-image-gen.mjs
  */
-const BASE_URL = process.env.AI_PROXY_BASE_URL ?? 'http://localhost:4142';
+const BASE_URL = process.env.AI_PROXY_BASE_URL ?? 'http://localhost:4141';
 const TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 console.log(`[test] POST ${BASE_URL}/v1/images/generations`);

@@ -1,7 +1,7 @@
 import OpenAI from '../../client';
 import type { ChatCompletionChunk, ChatCompletionTool, ChatCompletionMessageParam } from '../../client';
 
-const BASE_URL = process.env.PROXY_URL || 'http://localhost:4142';
+const BASE_URL = process.env.PROXY_URL || 'http://localhost:4141';
 const openai = new OpenAI({ baseURL: BASE_URL });
 
 const CALCULATOR_TOOL: ChatCompletionTool = {
@@ -35,7 +35,7 @@ async function collectStream(stream: AsyncIterable<ChatCompletionChunk>): Promis
   return { deltas, finishReasons };
 }
 
-describe('Integration — chat completions (requires proxy on :4142 and llama.cpp on :8080)', () => {
+describe('Integration — chat completions (requires proxy on :4141 and llama.cpp on :8080)', () => {
 
   describe('I1 — non-stream simple chat', () => {
     it('returns content in OpenAI shape', async () => {
