@@ -46,6 +46,12 @@ export class StreamBufferService {
    */
   async pipe(params: LlamaParamsStreaming, awaitToolCallCompletion: boolean, signal?: AbortSignal): Promise<{ stream: PassThrough; recoveryCount: number }> {
     const output = new PassThrough();
+    // Attach a fallback error listener immediately so a late upstream failure (e.g. undici BodyTimeoutError
+    // after pipe() has already returned and the caller piped output → res) can't crash the process. The
+    // listener logs and ends the stream gracefully instead of letting Node throw on the unhandled 'error' event.
+    output.on('error', (err) => {
+      this.logger.error(`PassThrough stream error: ${err instanceof Error ? err.message : err}`);
+    });
     let recoveryCount = 0;
 
     const upstreamStream = await this.forwarder.chatCompletionStream(params, signal);

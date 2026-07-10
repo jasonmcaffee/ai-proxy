@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { TRANSCRIBE_AUDIO_BASE_URL } from './transcribeAudio.config';
+import { TEXT_TO_SPEECH_BASE_URL } from './transcribeAudio.config';
 import { splitSentences } from '../utils/splitSentences';
 
 export type ChatterboxOpts = {
@@ -78,7 +78,7 @@ export class TranscribeAudioTtsService {
    * Returns the list of voices available from the Chatterbox engine.
    */
   async listVoices(): Promise<VoiceInfo[]> {
-    const res = await fetch(`${TRANSCRIBE_AUDIO_BASE_URL}/v1/audio/voices`);
+    const res = await fetch(`${TEXT_TO_SPEECH_BASE_URL}/v1/audio/voices`);
     if (!res.ok) await throwUpstreamError(res);
     const data = await res.json() as { voices: VoiceInfo[] };
     return data.voices;
@@ -92,7 +92,7 @@ export class TranscribeAudioTtsService {
    */
   async synthesize(input: string, opts: ChatterboxOpts, signal?: AbortSignal): Promise<Buffer> {
     const start = Date.now();
-    const res = await fetch(`${TRANSCRIBE_AUDIO_BASE_URL}/v1/audio/speech`, {
+    const res = await fetch(`${TEXT_TO_SPEECH_BASE_URL}/v1/audio/speech`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -119,7 +119,7 @@ export class TranscribeAudioTtsService {
    */
   async *synthesizeStream(input: string, opts: ChatterboxOpts, signal?: AbortSignal): AsyncGenerator<{ audio: Buffer; sentence: string }> {
     const sentences = splitSentences(input);
-    const res = await fetch(`${TRANSCRIBE_AUDIO_BASE_URL}/v1/audio/speech`, {
+    const res = await fetch(`${TEXT_TO_SPEECH_BASE_URL}/v1/audio/speech`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
