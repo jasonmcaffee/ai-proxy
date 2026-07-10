@@ -44,7 +44,7 @@ describe('ChatController — error status forwarding', () => {
       providers: [
         { provide: RetryExecutorService, useValue: { invoke: jest.fn() } },
         { provide: StreamBufferService, useValue: { pipe: jest.fn() } },
-        { provide: ContextCompressorService, useValue: { compress: jest.fn(async (msgs) => msgs) } },
+        { provide: ContextCompressorService, useValue: { compress: jest.fn(async (msgs) => ({ messages: msgs, meta: null })) } },
       ],
     }).compile();
 
@@ -145,6 +145,59 @@ describe('ChatController — error status forwarding', () => {
 
       expect(res.status).toHaveBeenCalledWith(503);
       expect(res.json).toHaveBeenCalledWith({ error: upstreamBody });
+    });
+  });
+
+  describe('non-stream — attaches context-usage meta', () => {
+    it('sets headers and adds x_ai_proxy to the body when compression returns meta', async () => {
+      const meta = { inputTokens: 120, contextLimit: 200000, usedPct: 0.1, compressAtTokens: 100000, tokensUntilCompression: 99880, untilCompressionPct: 0.1, compressed: true, strategy: 'sliding-window' as const, rawInputTokens: 500, droppedMessages: 2, summarizedMessages: 0, truncatedToolResults: 0 };
+      compressor.compress.mockResolvedValue({ messages: baseDto.messages, meta } as any);
+      retryExecutor.invoke.mockResolvedValue({ ...okCompletion });
+      const res = makeMockRes();
+
+      await controller.createCompletion({ ...baseDto, compressionOptions: { enabled: true, compressAtTokens: 100000 } } as any, makeMockReq(), res);
+
+      expect(res.setHeader).toHaveBeenCalledWith('x-ai-proxy-context-tokens', '120');
+      expect(res.setHeader).toHaveBeenCalledWith('x-ai-proxy-compressed', 'true');
+      expect(res.json.mock.calls[0][0].x_ai_proxy.contextUsage).toEqual(meta);
+    });
+  });
+
+  describe('stream — compression path emits frames', () => {
+    it('flushes SSE headers, writes a context_usage frame, and pipes on success', async () => {
+      const meta = { inputTokens: 90, contextLimit: 200000, usedPct: 0.05, compressAtTokens: 100000, tokensUntilCompression: 99910, untilCompressionPct: 0.09, compressed: false, strategy: 'sliding-window' as const, rawInputTokens: 90, droppedMessages: 0, summarizedMessages: 0, truncatedToolResults: 0 };
+      compressor.compress.mockImplementation(async (msgs: any, _opts: any, onProgress: any) => {
+        onProgress?.({ phase: 'analyzing', message: 'x' });
+        return { messages: msgs, meta };
+      });
+      const passThrough = new PassThrough();
+      passThrough.end();
+      streamBuffer.pipe.mockResolvedValue({ stream: passThrough, recoveryCount: 0 });
+      const writes: string[] = [];
+      const res = makeMockRes();
+      res.write = jest.fn((c: any) => { writes.push(String(c)); return true; });
+
+      await controller.createCompletion({ ...baseDto, stream: true, compressionOptions: { enabled: true, compressAtTokens: 100000 } } as any, makeMockReq(), res);
+
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
+      expect(writes.some(w => w.includes('compression_progress'))).toBe(true);
+      expect(writes.some(w => w.includes('context_usage'))).toBe(true);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('writes an SSE error frame (not HTTP status) when upstream errors after headers sent', async () => {
+      compressor.compress.mockResolvedValue({ messages: baseDto.messages, meta: null } as any);
+      streamBuffer.pipe.mockRejectedValue(new OpenAI.APIError(500, { message: 'boom' }, 'boom', new Headers()));
+      const writes: string[] = [];
+      const res = makeMockRes();
+      res.write = jest.fn((c: any) => { writes.push(String(c)); return true; });
+      res.end = jest.fn();
+
+      await controller.createCompletion({ ...baseDto, stream: true, compressionOptions: { enabled: true } } as any, makeMockReq(), res);
+
+      expect(res.status).not.toHaveBeenCalled();
+      expect(writes.some(w => w.includes('error'))).toBe(true);
+      expect(writes.some(w => w.includes('[DONE]'))).toBe(true);
     });
   });
 });

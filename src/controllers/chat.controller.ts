@@ -7,10 +7,11 @@ import { ChatCompletionRequestDto, ChatCompletionResponseDto } from '../models/c
 import { ContextCompressorService } from '../services/contextCompressor.service';
 import { RetryExecutorService } from '../services/retryExecutor.service';
 import { StreamBufferService } from '../services/streamBuffer.service';
+import { compressionProgressFrame, contextUsageFrame, setContextUsageHeaders } from '../services/proxyEvents';
 
 /**
  * Handles POST /v1/chat/completions — the main OpenAI-compatible inference endpoint.
- * Applies context compression, then routes to streaming or non-streaming path.
+ * Applies context compression (emitting progress + context-usage), then routes to streaming or non-streaming.
  */
 @ApiTags('chat')
 @Controller('v1/chat')
@@ -30,58 +31,109 @@ export class ChatController {
     const abortController = new AbortController();
     req.on('close', () => abortController.abort());
 
-    const compressedMessages = await this.compressor.compress(messages as unknown as ChatCompletionMessageParam[], compressionOptions);
-
     const llamaExtras = disableThinking ? { chat_template_kwargs: { enable_thinking: false } } : {};
-    const base = { ...rest, model: rest.model ?? 'local-model', messages: compressedMessages, ...llamaExtras };
 
     if (stream) {
-      const params = { ...base, stream: true } as LlamaParamsStreaming;
-      await this.handleStream(params, awaitToolCallCompletion ?? false, abortController.signal, res);
+      await this.runStream(messages as unknown as ChatCompletionMessageParam[], compressionOptions, rest, llamaExtras, awaitToolCallCompletion ?? false, abortController.signal, res);
     } else {
-      const params = { ...base, stream: false } as LlamaParamsNonStreaming;
-      await this.handleNonStream(params, abortController.signal, res);
+      await this.runNonStream(messages as unknown as ChatCompletionMessageParam[], compressionOptions, rest, llamaExtras, abortController.signal, res);
     }
   }
 
   /**
-   * Handles non-streaming completions via RetryExecutorService.
-   * @param params - typed non-streaming params
-   * @param signal - abort signal forwarded from the client connection
+   * Streaming path. When compression is enabled, opens SSE early to stream progress + context-usage
+   * before piping the model stream. When disabled, keeps the legacy flow so upstream errors surface as clean HTTP status.
+   * @param messages - client message history
+   * @param compressionOptions - client compression options
+   * @param rest - remaining OpenAI params
+   * @param llamaExtras - llama.cpp-specific extras
+   * @param awaitToolCallCompletion - whether to buffer tool-call deltas
+   * @param signal - abort signal
    * @param res - express response
    */
-  private async handleNonStream(params: LlamaParamsNonStreaming, signal: AbortSignal, res: Response): Promise<void> {
+  private async runStream(messages: ChatCompletionMessageParam[], compressionOptions: any, rest: any, llamaExtras: any, awaitToolCallCompletion: boolean, signal: AbortSignal, res: Response): Promise<void> {
+    if (compressionOptions?.enabled) {
+      return this.runStreamWithCompression(messages, compressionOptions, rest, llamaExtras, awaitToolCallCompletion, signal, res);
+    }
+
     try {
-      const result = await this.retryExecutor.invoke(params, signal);
-      res.status(HttpStatus.OK).json(result);
+      const base = { ...rest, model: rest.model ?? 'local-model', messages, ...llamaExtras };
+      const params = { ...base, stream: true } as LlamaParamsStreaming;
+      const { stream, recoveryCount } = await this.streamBuffer.pipe(params, awaitToolCallCompletion, signal);
+      this.setSseHeaders(res);
+      if (recoveryCount > 0) res.setHeader('x-ai-proxy-stream-recovery', String(recoveryCount));
+      stream.pipe(res);
     } catch (e: any) {
       const status = e?.status ?? HttpStatus.INTERNAL_SERVER_ERROR;
-      const errorBody = e?.error ?? { message: e?.message ?? 'Unknown error', type: 'proxy_error' };
+      const errorBody = e?.error ?? { message: e?.message ?? 'Stream error', type: 'proxy_error' };
       res.status(status).json({ error: errorBody });
     }
   }
 
   /**
-   * Handles streaming completions via StreamBufferService, piping SSE to the client.
-   * @param params - typed streaming params
+   * Streaming path with compression: flushes SSE headers, emits progress + context-usage, then pipes the model stream.
+   * On error after headers are sent, writes an SSE error frame instead of an HTTP status.
+   * @param messages - client message history
+   * @param compressionOptions - client compression options
+   * @param rest - remaining OpenAI params
+   * @param llamaExtras - llama.cpp-specific extras
    * @param awaitToolCallCompletion - whether to buffer tool-call deltas
-   * @param signal - abort signal forwarded from the client connection
+   * @param signal - abort signal
    * @param res - express response
    */
-  private async handleStream(params: LlamaParamsStreaming, awaitToolCallCompletion: boolean, signal: AbortSignal, res: Response): Promise<void> {
+  private async runStreamWithCompression(messages: ChatCompletionMessageParam[], compressionOptions: any, rest: any, llamaExtras: any, awaitToolCallCompletion: boolean, signal: AbortSignal, res: Response): Promise<void> {
+    this.setSseHeaders(res);
+    (res as any).flushHeaders?.();
     try {
-      const { stream, recoveryCount } = await this.streamBuffer.pipe(params, awaitToolCallCompletion, signal);
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('Transfer-Encoding', 'chunked');
-      if (recoveryCount > 0) {
-        res.setHeader('x-ai-proxy-stream-recovery', String(recoveryCount));
-      }
+      const { messages: compressed, meta } = await this.compressor.compress(messages, compressionOptions, p => res.write(compressionProgressFrame(p)));
+      if (meta) res.write(contextUsageFrame(meta));
+
+      const base = { ...rest, model: rest.model ?? 'local-model', messages: compressed, ...llamaExtras };
+      const params = { ...base, stream: true } as LlamaParamsStreaming;
+      const { stream } = await this.streamBuffer.pipe(params, awaitToolCallCompletion, signal);
       stream.pipe(res);
     } catch (e: any) {
-      const status = e?.status ?? HttpStatus.INTERNAL_SERVER_ERROR;
       const errorBody = e?.error ?? { message: e?.message ?? 'Stream error', type: 'proxy_error' };
+      res.write(`data: ${JSON.stringify({ error: errorBody })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+  }
+
+  /**
+   * Sets the standard SSE response headers.
+   * @param res - express response
+   */
+  private setSseHeaders(res: Response): void {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Transfer-Encoding', 'chunked');
+  }
+
+  /**
+   * Non-streaming path: compresses, attaches context-usage headers + body field, and returns JSON.
+   * @param messages - client message history
+   * @param compressionOptions - client compression options
+   * @param rest - remaining OpenAI params
+   * @param llamaExtras - llama.cpp-specific extras
+   * @param signal - abort signal
+   * @param res - express response
+   */
+  private async runNonStream(messages: ChatCompletionMessageParam[], compressionOptions: any, rest: any, llamaExtras: any, signal: AbortSignal, res: Response): Promise<void> {
+    try {
+      const { messages: compressed, meta } = await this.compressor.compress(messages, compressionOptions);
+      const base = { ...rest, model: rest.model ?? 'local-model', messages: compressed, ...llamaExtras };
+      const params = { ...base, stream: false } as LlamaParamsNonStreaming;
+      const result = await this.retryExecutor.invoke(params, signal);
+      if (meta) {
+        setContextUsageHeaders(res, meta);
+        (result as any).x_ai_proxy = { contextUsage: meta };
+      }
+      res.status(HttpStatus.OK).json(result);
+    } catch (e: any) {
+      const status = e?.status ?? HttpStatus.INTERNAL_SERVER_ERROR;
+      const errorBody = e?.error ?? { message: e?.message ?? 'Unknown error', type: 'proxy_error' };
       res.status(status).json({ error: errorBody });
     }
   }

@@ -13,6 +13,21 @@
  */
 
 import { mapValues } from '../runtime';
+import type { ToolResultTruncation } from './ToolResultTruncation';
+import {
+    ToolResultTruncationFromJSON,
+    ToolResultTruncationFromJSONTyped,
+    ToolResultTruncationToJSON,
+    ToolResultTruncationToJSONTyped,
+} from './ToolResultTruncation';
+import type { SummarizeOptions } from './SummarizeOptions';
+import {
+    SummarizeOptionsFromJSON,
+    SummarizeOptionsFromJSONTyped,
+    SummarizeOptionsToJSON,
+    SummarizeOptionsToJSONTyped,
+} from './SummarizeOptions';
+
 /**
  * 
  * @export
@@ -26,12 +41,104 @@ export interface CompressionOptions {
      */
     enabled?: boolean;
     /**
-     * Maximum context size in tokens. Older messages are evicted when exceeded.
+     * DEPRECATED alias: when set alone, acts as both trigger and target (legacy behavior).
      * @type {number}
      * @memberof CompressionOptions
      */
     maxContextSize?: number;
+    /**
+     * Compress only when counted input tokens exceed this threshold
+     * @type {number}
+     * @memberof CompressionOptions
+     */
+    compressAtTokens?: number;
+    /**
+     * Compress down to (approximately) this many tokens. Defaults to 75% of compressAtTokens.
+     * @type {number}
+     * @memberof CompressionOptions
+     */
+    targetTokens?: number;
+    /**
+     * Compression strategy. Default sliding-window.
+     * @type {CompressionOptionsStrategyEnum}
+     * @memberof CompressionOptions
+     */
+    strategy?: CompressionOptionsStrategyEnum;
+    /**
+     * Always keep this many most-recent messages verbatim
+     * @type {number}
+     * @memberof CompressionOptions
+     */
+    keepRecentMessages?: number;
+    /**
+     * Alternative recency budget in tokens (takes precedence over keepRecentMessages if both set)
+     * @type {number}
+     * @memberof CompressionOptions
+     */
+    keepRecentTokens?: number;
+    /**
+     * Preserve leading system message(s) unmodified. Default true.
+     * @type {boolean}
+     * @memberof CompressionOptions
+     */
+    preserveSystemPrompt?: boolean;
+    /**
+     * Preserve the first user message verbatim (it usually carries the task/goal/facts), never summarizing or evicting it. Default true.
+     * @type {boolean}
+     * @memberof CompressionOptions
+     */
+    preserveFirstUserMessage?: boolean;
+    /**
+     * Keep only the most-recent image in the conversation, clearing older image payloads. Default true when enabled.
+     * @type {boolean}
+     * @memberof CompressionOptions
+     */
+    onlyKeepLatestImage?: boolean;
+    /**
+     * Scope of onlyKeepLatestImage. "tool-only" dedupes only tool-message screenshots and preserves user-attached asset images. Default "all".
+     * @type {CompressionOptionsImageDedupeScopeEnum}
+     * @memberof CompressionOptions
+     */
+    imageDedupeScope?: CompressionOptionsImageDedupeScopeEnum;
+    /**
+     * Override the model context window used for the "% of context" metric. Auto-detected from llama.cpp /props when omitted.
+     * @type {number}
+     * @memberof CompressionOptions
+     */
+    contextLimit?: number;
+    /**
+     * 
+     * @type {ToolResultTruncation}
+     * @memberof CompressionOptions
+     */
+    truncateToolResults?: ToolResultTruncation;
+    /**
+     * 
+     * @type {SummarizeOptions}
+     * @memberof CompressionOptions
+     */
+    summarize?: SummarizeOptions;
 }
+
+
+/**
+ * @export
+ */
+export const CompressionOptionsStrategyEnum = {
+    SlidingWindow: 'sliding-window',
+    Summarize: 'summarize'
+} as const;
+export type CompressionOptionsStrategyEnum = typeof CompressionOptionsStrategyEnum[keyof typeof CompressionOptionsStrategyEnum];
+
+/**
+ * @export
+ */
+export const CompressionOptionsImageDedupeScopeEnum = {
+    All: 'all',
+    ToolOnly: 'tool-only'
+} as const;
+export type CompressionOptionsImageDedupeScopeEnum = typeof CompressionOptionsImageDedupeScopeEnum[keyof typeof CompressionOptionsImageDedupeScopeEnum];
+
 
 /**
  * Check if a given object implements the CompressionOptions interface.
@@ -52,6 +159,18 @@ export function CompressionOptionsFromJSONTyped(json: any, ignoreDiscriminator: 
         
         'enabled': json['enabled'] == null ? undefined : json['enabled'],
         'maxContextSize': json['maxContextSize'] == null ? undefined : json['maxContextSize'],
+        'compressAtTokens': json['compressAtTokens'] == null ? undefined : json['compressAtTokens'],
+        'targetTokens': json['targetTokens'] == null ? undefined : json['targetTokens'],
+        'strategy': json['strategy'] == null ? undefined : json['strategy'],
+        'keepRecentMessages': json['keepRecentMessages'] == null ? undefined : json['keepRecentMessages'],
+        'keepRecentTokens': json['keepRecentTokens'] == null ? undefined : json['keepRecentTokens'],
+        'preserveSystemPrompt': json['preserveSystemPrompt'] == null ? undefined : json['preserveSystemPrompt'],
+        'preserveFirstUserMessage': json['preserveFirstUserMessage'] == null ? undefined : json['preserveFirstUserMessage'],
+        'onlyKeepLatestImage': json['onlyKeepLatestImage'] == null ? undefined : json['onlyKeepLatestImage'],
+        'imageDedupeScope': json['imageDedupeScope'] == null ? undefined : json['imageDedupeScope'],
+        'contextLimit': json['contextLimit'] == null ? undefined : json['contextLimit'],
+        'truncateToolResults': json['truncateToolResults'] == null ? undefined : ToolResultTruncationFromJSON(json['truncateToolResults']),
+        'summarize': json['summarize'] == null ? undefined : SummarizeOptionsFromJSON(json['summarize']),
     };
 }
 
@@ -68,6 +187,18 @@ export function CompressionOptionsToJSONTyped(value?: CompressionOptions | null,
         
         'enabled': value['enabled'],
         'maxContextSize': value['maxContextSize'],
+        'compressAtTokens': value['compressAtTokens'],
+        'targetTokens': value['targetTokens'],
+        'strategy': value['strategy'],
+        'keepRecentMessages': value['keepRecentMessages'],
+        'keepRecentTokens': value['keepRecentTokens'],
+        'preserveSystemPrompt': value['preserveSystemPrompt'],
+        'preserveFirstUserMessage': value['preserveFirstUserMessage'],
+        'onlyKeepLatestImage': value['onlyKeepLatestImage'],
+        'imageDedupeScope': value['imageDedupeScope'],
+        'contextLimit': value['contextLimit'],
+        'truncateToolResults': ToolResultTruncationToJSON(value['truncateToolResults']),
+        'summarize': SummarizeOptionsToJSON(value['summarize']),
     };
 }
 

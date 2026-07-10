@@ -49,6 +49,18 @@ export interface AudioSpeechRequest {
      * @memberof AudioSpeechRequest
      */
     speed?: number;
+    /**
+     * Chatterbox cfg_weight (0.0–1.0); only used on the default (non-legacy) path
+     * @type {number}
+     * @memberof AudioSpeechRequest
+     */
+    exaggeration?: number;
+    /**
+     * Route to the legacy speaches backend instead of Chatterbox
+     * @type {boolean}
+     * @memberof AudioSpeechRequest
+     */
+    legacy?: boolean;
 }
 
 /**
@@ -74,6 +86,8 @@ export function AudioSpeechRequestFromJSONTyped(json: any, ignoreDiscriminator: 
         'voice': json['voice'] == null ? undefined : json['voice'],
         'responseFormat': json['response_format'] == null ? undefined : json['response_format'],
         'speed': json['speed'] == null ? undefined : json['speed'],
+        'exaggeration': json['exaggeration'] == null ? undefined : json['exaggeration'],
+        'legacy': json['legacy'] == null ? undefined : json['legacy'],
     };
 }
 
@@ -93,6 +107,8 @@ export function AudioSpeechRequestToJSONTyped(value?: AudioSpeechRequest | null,
         'voice': value['voice'],
         'response_format': value['responseFormat'],
         'speed': value['speed'],
+        'exaggeration': value['exaggeration'],
+        'legacy': value['legacy'],
     };
 }
 

@@ -4,17 +4,75 @@ All URIs are relative to *http://localhost*
 
 | Method | HTTP request | Description |
 |------------- | ------------- | -------------|
-| [**speak**](AudioApi.md#speak) | **POST** /v1/audio/speech | Generate speech audio from text via speaches (sync) |
-| [**speakStream**](AudioApi.md#speakstream) | **POST** /v1/audio/speech/stream | Generate speech audio sentence-by-sentence over SSE |
+| [**listVoices**](AudioApi.md#listvoices) | **GET** /v1/audio/voices | List voices available from the Chatterbox TTS engine |
+| [**speak**](AudioApi.md#speak) | **POST** /v1/audio/speech | Generate speech audio from text (default: Chatterbox WAV; legacy:true → speaches MP3) |
+| [**speakStream**](AudioApi.md#speakstream) | **POST** /v1/audio/speech/stream | Generate speech audio sentence-by-sentence over SSE (default: Chatterbox; legacy:true → speaches) |
 | [**transcribe**](AudioApi.md#transcribe) | **POST** /v1/audio/transcriptions | Transcribe audio. Default: transcribe-audio (Whisper large-v3). legacy&#x3D;true: speaches. diarization&#x3D;true: transcribe-audio with speaker labels. |
 
+
+
+## listVoices
+
+> listVoices()
+
+List voices available from the Chatterbox TTS engine
+
+### Example
+
+```ts
+import {
+  Configuration,
+  AudioApi,
+} from '';
+import type { ListVoicesRequest } from '';
+
+async function example() {
+  console.log("🚀 Testing  SDK...");
+  const api = new AudioApi();
+
+  try {
+    const data = await api.listVoices();
+    console.log(data);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+// Run the test
+example().catch(console.error);
+```
+
+### Parameters
+
+This endpoint does not need any parameter.
+
+### Return type
+
+`void` (Empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: Not defined
+
+
+### HTTP response details
+| Status code | Description | Response headers |
+|-------------|-------------|------------------|
+| **200** | Array of available voices with id, language, and gender |  -  |
+
+[[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
 
 
 ## speak
 
 > Blob speak(audioSpeechRequest)
 
-Generate speech audio from text via speaches (sync)
+Generate speech audio from text (default: Chatterbox WAV; legacy:true → speaches MP3)
 
 ### Example
 
@@ -64,7 +122,7 @@ No authorization required
 ### HTTP request headers
 
 - **Content-Type**: `application/json`
-- **Accept**: `audio/mpeg`
+- **Accept**: `audio/wav`
 
 
 ### HTTP response details
@@ -72,6 +130,7 @@ No authorization required
 |-------------|-------------|------------------|
 | **200** | Binary audio body |  -  |
 | **400** | Missing or invalid input |  -  |
+| **404** | Unknown voice |  -  |
 | **500** | Speech synthesis failed |  -  |
 
 [[Back to top]](#) [[Back to API list]](../README.md#api-endpoints) [[Back to Model list]](../README.md#models) [[Back to README]](../README.md)
@@ -81,7 +140,7 @@ No authorization required
 
 > AudioSpeechStreamChunk speakStream(audioSpeechRequest)
 
-Generate speech audio sentence-by-sentence over SSE
+Generate speech audio sentence-by-sentence over SSE (default: Chatterbox; legacy:true → speaches)
 
 ### Example
 

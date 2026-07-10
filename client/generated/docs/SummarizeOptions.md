@@ -1,34 +1,24 @@
 
-# AudioSpeechRequest
+# SummarizeOptions
 
 
 ## Properties
 
 Name | Type
 ------------ | -------------
-`input` | string
-`model` | string
-`voice` | string
-`responseFormat` | string
-`speed` | number
-`exaggeration` | number
-`legacy` | boolean
+`summaryModel` | string
+`summaryMaxTokens` | number
 
 ## Example
 
 ```typescript
-import type { AudioSpeechRequest } from ''
+import type { SummarizeOptions } from ''
 
 // TODO: Update the object below with actual values
 const example = {
-  "input": null,
-  "model": hexgrad/Kokoro-82M,
-  "voice": af_sky,
-  "responseFormat": mp3,
-  "speed": 1,
-  "exaggeration": 0.5,
-  "legacy": false,
-} satisfies AudioSpeechRequest
+  "summaryModel": null,
+  "summaryMaxTokens": 1024,
+} satisfies SummarizeOptions
 
 console.log(example)
 
@@ -37,7 +27,7 @@ const exampleJSON: string = JSON.stringify(example)
 console.log(exampleJSON)
 
 // Parse the JSON string back to an object
-const exampleParsed = JSON.parse(exampleJSON) as AudioSpeechRequest
+const exampleParsed = JSON.parse(exampleJSON) as SummarizeOptions
 console.log(exampleParsed)
 ```
 

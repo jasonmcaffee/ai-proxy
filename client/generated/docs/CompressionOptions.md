@@ -8,6 +8,18 @@ Name | Type
 ------------ | -------------
 `enabled` | boolean
 `maxContextSize` | number
+`compressAtTokens` | number
+`targetTokens` | number
+`strategy` | string
+`keepRecentMessages` | number
+`keepRecentTokens` | number
+`preserveSystemPrompt` | boolean
+`preserveFirstUserMessage` | boolean
+`onlyKeepLatestImage` | boolean
+`imageDedupeScope` | string
+`contextLimit` | number
+`truncateToolResults` | [ToolResultTruncation](ToolResultTruncation.md)
+`summarize` | [SummarizeOptions](SummarizeOptions.md)
 
 ## Example
 
@@ -18,6 +30,18 @@ import type { CompressionOptions } from ''
 const example = {
   "enabled": null,
   "maxContextSize": null,
+  "compressAtTokens": 100000,
+  "targetTokens": 75000,
+  "strategy": null,
+  "keepRecentMessages": 10,
+  "keepRecentTokens": null,
+  "preserveSystemPrompt": null,
+  "preserveFirstUserMessage": null,
+  "onlyKeepLatestImage": null,
+  "imageDedupeScope": null,
+  "contextLimit": 200000,
+  "truncateToolResults": null,
+  "summarize": null,
 } satisfies CompressionOptions
 
 console.log(example)

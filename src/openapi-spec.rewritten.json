@@ -172,6 +172,21 @@
         ]
       }
     },
+    "/v1/audio/voices": {
+      "get": {
+        "operationId": "listVoices",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Array of available voices with id, language, and gender"
+          }
+        },
+        "summary": "List voices available from the Chatterbox TTS engine",
+        "tags": [
+          "audio"
+        ]
+      }
+    },
     "/v1/audio/speech": {
       "post": {
         "operationId": "speak",
@@ -190,7 +205,7 @@
           "200": {
             "description": "Binary audio body",
             "content": {
-              "audio/mpeg": {
+              "audio/wav": {
                 "schema": {
                   "type": "string",
                   "format": "binary"
@@ -201,11 +216,14 @@
           "400": {
             "description": "Missing or invalid input"
           },
+          "404": {
+            "description": "Unknown voice"
+          },
           "500": {
             "description": "Speech synthesis failed"
           }
         },
-        "summary": "Generate speech audio from text via speaches (sync)",
+        "summary": "Generate speech audio from text (default: Chatterbox WAV; legacy:true → speaches MP3)",
         "tags": [
           "audio"
         ]
@@ -237,7 +255,7 @@
             }
           }
         },
-        "summary": "Generate speech audio sentence-by-sentence over SSE",
+        "summary": "Generate speech audio sentence-by-sentence over SSE (default: Chatterbox; legacy:true → speaches)",
         "tags": [
           "audio"
         ]
@@ -366,6 +384,39 @@
           "function"
         ]
       },
+      "ToolResultTruncation": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable truncation of older tool/function results"
+          },
+          "maxToolResultTokens": {
+            "type": "number",
+            "description": "Max tokens kept per truncated tool result (middle-clipped)",
+            "example": 512
+          },
+          "keepRecentToolResults": {
+            "type": "number",
+            "description": "Number of most-recent tool results kept verbatim",
+            "example": 3
+          }
+        }
+      },
+      "SummarizeOptions": {
+        "type": "object",
+        "properties": {
+          "summaryModel": {
+            "type": "string",
+            "description": "Model used to produce the running summary. Defaults to the request model."
+          },
+          "summaryMaxTokens": {
+            "type": "number",
+            "description": "Max tokens the generated summary may occupy",
+            "example": 1024
+          }
+        }
+      },
       "CompressionOptions": {
         "type": "object",
         "properties": {
@@ -375,7 +426,65 @@
           },
           "maxContextSize": {
             "type": "number",
-            "description": "Maximum context size in tokens. Older messages are evicted when exceeded."
+            "description": "DEPRECATED alias: when set alone, acts as both trigger and target (legacy behavior)."
+          },
+          "compressAtTokens": {
+            "type": "number",
+            "description": "Compress only when counted input tokens exceed this threshold",
+            "example": 100000
+          },
+          "targetTokens": {
+            "type": "number",
+            "description": "Compress down to (approximately) this many tokens. Defaults to 75% of compressAtTokens.",
+            "example": 75000
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "sliding-window",
+              "summarize"
+            ],
+            "description": "Compression strategy. Default sliding-window."
+          },
+          "keepRecentMessages": {
+            "type": "number",
+            "description": "Always keep this many most-recent messages verbatim",
+            "example": 10
+          },
+          "keepRecentTokens": {
+            "type": "number",
+            "description": "Alternative recency budget in tokens (takes precedence over keepRecentMessages if both set)"
+          },
+          "preserveSystemPrompt": {
+            "type": "boolean",
+            "description": "Preserve leading system message(s) unmodified. Default true."
+          },
+          "preserveFirstUserMessage": {
+            "type": "boolean",
+            "description": "Preserve the first user message verbatim (it usually carries the task/goal/facts), never summarizing or evicting it. Default true."
+          },
+          "onlyKeepLatestImage": {
+            "type": "boolean",
+            "description": "Keep only the most-recent image in the conversation, clearing older image payloads. Default true when enabled."
+          },
+          "imageDedupeScope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "tool-only"
+            ],
+            "description": "Scope of onlyKeepLatestImage. \"tool-only\" dedupes only tool-message screenshots and preserves user-attached asset images. Default \"all\"."
+          },
+          "contextLimit": {
+            "type": "number",
+            "description": "Override the model context window used for the \"% of context\" metric. Auto-detected from llama.cpp /props when omitted.",
+            "example": 200000
+          },
+          "truncateToolResults": {
+            "$ref": "#/components/schemas/ToolResultTruncation"
+          },
+          "summarize": {
+            "$ref": "#/components/schemas/SummarizeOptions"
           }
         }
       },
@@ -767,6 +876,16 @@
             "type": "number",
             "description": "Speech speed (0.25–4.0)",
             "example": 1
+          },
+          "exaggeration": {
+            "type": "number",
+            "description": "Chatterbox cfg_weight (0.0–1.0); only used on the default (non-legacy) path",
+            "example": 0.5
+          },
+          "legacy": {
+            "type": "boolean",
+            "description": "Route to the legacy speaches backend instead of Chatterbox",
+            "example": false
           }
         },
         "required": [

@@ -23,9 +23,11 @@ docs/ImagesApi.md
 docs/ModelObject.md
 docs/ModelsApi.md
 docs/ModelsListResponse.md
+docs/SummarizeOptions.md
 docs/ToolCall.md
 docs/ToolDefinition.md
 docs/ToolFunction.md
+docs/ToolResultTruncation.md
 docs/Transcribe200Response.md
 docs/TranscriptionSegment.md
 docs/Usage.md
@@ -46,9 +48,11 @@ models/ImageGenerationRequest.ts
 models/ImageGenerationResponse.ts
 models/ModelObject.ts
 models/ModelsListResponse.ts
+models/SummarizeOptions.ts
 models/ToolCall.ts
 models/ToolDefinition.ts
 models/ToolFunction.ts
+models/ToolResultTruncation.ts
 models/Transcribe200Response.ts
 models/TranscriptionSegment.ts
 models/Usage.ts

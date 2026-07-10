@@ -1,34 +1,26 @@
 
-# AudioSpeechRequest
+# ToolResultTruncation
 
 
 ## Properties
 
 Name | Type
 ------------ | -------------
-`input` | string
-`model` | string
-`voice` | string
-`responseFormat` | string
-`speed` | number
-`exaggeration` | number
-`legacy` | boolean
+`enabled` | boolean
+`maxToolResultTokens` | number
+`keepRecentToolResults` | number
 
 ## Example
 
 ```typescript
-import type { AudioSpeechRequest } from ''
+import type { ToolResultTruncation } from ''
 
 // TODO: Update the object below with actual values
 const example = {
-  "input": null,
-  "model": hexgrad/Kokoro-82M,
-  "voice": af_sky,
-  "responseFormat": mp3,
-  "speed": 1,
-  "exaggeration": 0.5,
-  "legacy": false,
-} satisfies AudioSpeechRequest
+  "enabled": null,
+  "maxToolResultTokens": 512,
+  "keepRecentToolResults": 3,
+} satisfies ToolResultTruncation
 
 console.log(example)
 
@@ -37,7 +29,7 @@ const exampleJSON: string = JSON.stringify(example)
 console.log(exampleJSON)
 
 // Parse the JSON string back to an object
-const exampleParsed = JSON.parse(exampleJSON) as AudioSpeechRequest
+const exampleParsed = JSON.parse(exampleJSON) as ToolResultTruncation
 console.log(exampleParsed)
 ```
 

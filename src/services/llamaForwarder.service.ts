@@ -26,6 +26,29 @@ export class LlamaForwarderService {
     apiKey: process.env.LLAMA_API_KEY || 'not-needed',
   });
 
+  private cachedContextLength: number | null = null;
+
+  /**
+   * Returns the model's context window size (n_ctx) from llama.cpp /props, cached after first fetch.
+   * Returns null if llama.cpp does not expose it or the call fails, so callers can fall back.
+   */
+  async getContextLength(): Promise<number | null> {
+    if (this.cachedContextLength !== null) return this.cachedContextLength;
+    try {
+      const res = await fetch(`${LLAMA_BASE_URL}/props`);
+      if (!res.ok) return null;
+      const data = await res.json() as { default_generation_settings?: { n_ctx?: number }; n_ctx?: number };
+      const nCtx = data.default_generation_settings?.n_ctx ?? data.n_ctx ?? null;
+      if (typeof nCtx === 'number' && nCtx > 0) {
+        this.cachedContextLength = nCtx;
+        return nCtx;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Sends a non-streaming chat completion request to llama.cpp via the OpenAI SDK.
    * @param params - typed chat completion params including any llama.cpp extras

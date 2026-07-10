@@ -52,6 +52,42 @@ export interface TranscribeRequest {
 export class AudioApi extends runtime.BaseAPI {
 
     /**
+     * Creates request options for listVoices without sending the request
+     */
+    async listVoicesRequestOpts(): Promise<runtime.RequestOpts> {
+        const queryParameters: any = {};
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+
+        let urlPath = `/v1/audio/voices`;
+
+        return {
+            path: urlPath,
+            method: 'GET',
+            headers: headerParameters,
+            query: queryParameters,
+        };
+    }
+
+    /**
+     * List voices available from the Chatterbox TTS engine
+     */
+    async listVoicesRaw(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<void>> {
+        const requestOptions = await this.listVoicesRequestOpts();
+        const response = await this.request(requestOptions, initOverrides);
+
+        return new runtime.VoidApiResponse(response);
+    }
+
+    /**
+     * List voices available from the Chatterbox TTS engine
+     */
+    async listVoices(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<void> {
+        await this.listVoicesRaw(initOverrides);
+    }
+
+    /**
      * Creates request options for speak without sending the request
      */
     async speakRequestOpts(requestParameters: SpeakRequest): Promise<runtime.RequestOpts> {
@@ -81,7 +117,7 @@ export class AudioApi extends runtime.BaseAPI {
     }
 
     /**
-     * Generate speech audio from text via speaches (sync)
+     * Generate speech audio from text (default: Chatterbox WAV; legacy:true → speaches MP3)
      */
     async speakRaw(requestParameters: SpeakRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<Blob>> {
         const requestOptions = await this.speakRequestOpts(requestParameters);
@@ -91,7 +127,7 @@ export class AudioApi extends runtime.BaseAPI {
     }
 
     /**
-     * Generate speech audio from text via speaches (sync)
+     * Generate speech audio from text (default: Chatterbox WAV; legacy:true → speaches MP3)
      */
     async speak(audioSpeechRequest: AudioSpeechRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Blob> {
         const response = await this.speakRaw({ audioSpeechRequest: audioSpeechRequest }, initOverrides);
@@ -128,7 +164,7 @@ export class AudioApi extends runtime.BaseAPI {
     }
 
     /**
-     * Generate speech audio sentence-by-sentence over SSE
+     * Generate speech audio sentence-by-sentence over SSE (default: Chatterbox; legacy:true → speaches)
      */
     async speakStreamRaw(requestParameters: SpeakStreamRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<runtime.ApiResponse<AudioSpeechStreamChunk>> {
         const requestOptions = await this.speakStreamRequestOpts(requestParameters);
@@ -138,7 +174,7 @@ export class AudioApi extends runtime.BaseAPI {
     }
 
     /**
-     * Generate speech audio sentence-by-sentence over SSE
+     * Generate speech audio sentence-by-sentence over SSE (default: Chatterbox; legacy:true → speaches)
      */
     async speakStream(audioSpeechRequest: AudioSpeechRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<AudioSpeechStreamChunk> {
         const response = await this.speakStreamRaw({ audioSpeechRequest: audioSpeechRequest }, initOverrides);
