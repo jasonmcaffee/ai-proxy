@@ -29,7 +29,15 @@ export class ChatController {
     const { compressionOptions, awaitToolCallCompletion, disableThinking, stream, messages, ...rest } = dto;
 
     const abortController = new AbortController();
-    req.on('close', () => abortController.abort());
+    // Abort the upstream llama.cpp request the instant the client disconnects. For a POST whose body is
+    // already fully read, `req` 'close' does NOT reliably fire when the client goes away mid-RESPONSE — so
+    // a stopped/closed Co-Pilot stream would leave llama generating to completion (observed: a single
+    // degenerate 49k-token generation pinning the single-slot GPU). `res` 'close' is the dependable signal
+    // that the streaming client went away, so listen on both. abort() is idempotent, so a normal completion
+    // firing `res` 'close' after the stream already ended is a harmless no-op.
+    const onClientDisconnect = () => abortController.abort();
+    req.on('close', onClientDisconnect);
+    res.on('close', onClientDisconnect);
 
     const llamaExtras = disableThinking ? { chat_template_kwargs: { enable_thinking: false } } : {};
 
