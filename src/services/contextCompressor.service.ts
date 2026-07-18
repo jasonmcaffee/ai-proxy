@@ -71,7 +71,7 @@ export class ContextCompressorService {
       truncatedToolResults = this.maskOldToolResults(history, opts.truncateToolResults);
     }
 
-    const trigger = this.resolveTrigger(opts);
+    const trigger = await this.resolveTrigger(opts);
     const strategy: CompressionStrategy = opts.strategy ?? 'sliding-window';
     let droppedMessages = 0;
     let summarizedMessages = 0;
@@ -124,11 +124,19 @@ export class ContextCompressorService {
   }
 
   /**
-   * Resolves the compression trigger threshold: compressAtTokens, else legacy maxContextSize.
+   * Resolves the compression trigger threshold: compressAtTokens, else legacy maxContextSize, then clamps it
+   * to the detected llama.cpp context window (n_ctx) so a client value can never exceed the real window.
+   * This n_ctx-relative ceiling is the SINGLE safety guard for compression (task-569) — ai-service no longer
+   * clamps options, so the proxy is the one owner of both logic and policy. Leaves ~5% headroom for the reply.
    * @param opts - compression options
    */
-  private resolveTrigger(opts: CompressionOptionsDto): number | null {
-    return opts.compressAtTokens ?? opts.maxContextSize ?? null;
+  private async resolveTrigger(opts: CompressionOptionsDto): Promise<number | null> {
+    const requested = opts.compressAtTokens ?? opts.maxContextSize ?? null;
+    if (requested == null) return null;
+    const nCtx = await this.forwarder.getContextLength();
+    if (!nCtx) return requested;
+    const ceiling = Math.floor(nCtx * 0.95);
+    return Math.min(requested, ceiling);
   }
 
   /**
@@ -273,7 +281,13 @@ export class ContextCompressorService {
    */
   private async evictOldestToTarget(history: MutableMessage[], target: number, opts: CompressionOptionsDto): Promise<number> {
     let dropped = 0;
-    let tokens = await this.countOrEstimate(history);
+    // Track the running token total LOCALLY (char-based estimate) instead of a llama /count_tokens
+    // round-trip per dropped message (task-478). The loop can evict many messages, and one HTTP
+    // round-trip each made compression cost grow without bound in a long co-pilot session where the
+    // backend re-sends the full (ever-growing) history every turn — walls climbed to 20-30s+ once
+    // compression fired on every turn. The estimate slightly over-counts (safe: evicts a touch more),
+    // and compress() still does ONE authoritative count afterwards for the reported meta.
+    let tokens = this.estimateHistoryTokens(history);
 
     while (tokens > target) {
       const headKeep = this.computeHeadKeepCount(history, opts);
@@ -292,9 +306,11 @@ export class ContextCompressorService {
       if (m.role === 'assistant' && (m.tool_calls?.length ?? 0) > 0) {
         while (removeIdx + removeCount < recencyStart && history[removeIdx + removeCount].role === 'tool') removeCount++;
       }
+      let removedTokens = 0;
+      for (let k = 0; k < removeCount; k++) removedTokens += this.estimateMessageTokens(history[removeIdx + k]);
       history.splice(removeIdx, removeCount);
       dropped += removeCount;
-      tokens = await this.countOrEstimate(history);
+      tokens -= removedTokens;
     }
     return dropped;
   }

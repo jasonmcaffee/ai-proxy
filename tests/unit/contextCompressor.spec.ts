@@ -84,31 +84,34 @@ describe('ContextCompressorService', () => {
 
   describe('sliding-window eviction', () => {
     it('evicts oldest non-system messages when over target, preserving recency + system', async () => {
-      // Length-based token count: 200 tokens per message (realistic monotonic behavior).
+      // eviction tracks tokens with the char-based estimate (task-478: no per-message /count_tokens
+      // round-trip), so message content must be long enough that the estimate exceeds the target.
       mockForwarder.countTokens!.mockImplementation(async ({ messages }: any) => messages.length * 200);
+      const pad = (s: string) => `${s} ${'x'.repeat(400)}`;
       const messages: ChatCompletionMessageParam[] = [
-        makeTextMessage('system', 'system prompt'),
-        makeTextMessage('user', 'old 1'),
-        makeTextMessage('assistant', 'old resp 1'),
-        makeTextMessage('user', 'old 2'),
-        makeTextMessage('assistant', 'old resp 2'),
-        makeTextMessage('user', 'recent'),
+        makeTextMessage('system', pad('system prompt')),
+        makeTextMessage('user', pad('old 1')),
+        makeTextMessage('assistant', pad('old resp 1')),
+        makeTextMessage('user', pad('old 2')),
+        makeTextMessage('assistant', pad('old resp 2')),
+        makeTextMessage('user', pad('recent')),
       ];
       const result = await service.compress(messages, { enabled: true, compressAtTokens: 100, targetTokens: 100, keepRecentMessages: 1, onlyKeepLatestImage: false });
       expect(result.messages.length).toBeLessThan(messages.length);
       // system preserved at front
       expect(result.messages[0].role).toBe('system');
       // most recent preserved at end
-      expect(result.messages[result.messages.length - 1].content).toBe('recent');
+      expect((result.messages[result.messages.length - 1].content as string)).toContain('recent');
       expect(result.meta!.droppedMessages).toBeGreaterThan(0);
     });
 
     it('keeps an assistant→tool pair together', async () => {
       mockForwarder.countTokens!.mockImplementation(async ({ messages }: any) => messages.length * 200);
+      const pad = (s: string) => `${s} ${'x'.repeat(400)}`;
       const messages: ChatCompletionMessageParam[] = [
-        makeTextMessage('user', 'old'),
-        { role: 'assistant', content: 'calling tool', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'calc', arguments: '{}' } }] as any },
-        { role: 'tool', content: 'result', tool_call_id: 'tc1' } as any,
+        makeTextMessage('user', pad('old')),
+        { role: 'assistant', content: pad('calling tool'), tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'calc', arguments: '{}' } }] as any },
+        { role: 'tool', content: pad('result'), tool_call_id: 'tc1' } as any,
       ];
       const result = await service.compress(messages, { enabled: true, compressAtTokens: 10, targetTokens: 10, keepRecentMessages: 2, onlyKeepLatestImage: false });
       const hasPair = result.messages.some(m => m.role === 'assistant' && (m as any).tool_calls?.length);
@@ -137,13 +140,14 @@ describe('ContextCompressorService', () => {
     it('falls back to eviction when summary call fails', async () => {
       mockForwarder.countTokens!.mockImplementation(async ({ messages }: any) => messages.length * 200);
       mockForwarder.chatCompletion!.mockRejectedValue(new Error('llm down'));
+      const pad = (s: string) => `${s} ${'x'.repeat(400)}`;
       const messages: ChatCompletionMessageParam[] = [
-        makeTextMessage('system', 'sys'),
-        makeTextMessage('user', 'q1'), makeTextMessage('assistant', 'a1'),
-        makeTextMessage('user', 'q2'), makeTextMessage('assistant', 'a2'),
-        makeTextMessage('user', 'recent'),
+        makeTextMessage('system', pad('sys')),
+        makeTextMessage('user', pad('q1')), makeTextMessage('assistant', pad('a1')),
+        makeTextMessage('user', pad('q2')), makeTextMessage('assistant', pad('a2')),
+        makeTextMessage('user', pad('recent')),
       ];
-      const result = await service.compress(messages, { enabled: true, strategy: 'summarize', compressAtTokens: 1000, targetTokens: 1000, keepRecentMessages: 1, onlyKeepLatestImage: false });
+      const result = await service.compress(messages, { enabled: true, strategy: 'summarize', compressAtTokens: 1000, targetTokens: 300, keepRecentMessages: 1, onlyKeepLatestImage: false });
       expect(result.meta!.summarizedMessages).toBe(0);
       // eviction still happened
       expect(result.meta!.droppedMessages).toBeGreaterThan(0);
@@ -189,6 +193,23 @@ describe('ContextCompressorService', () => {
       // old tool screenshot cleared, latest tool screenshot kept
       expect(result.messages[1].content).toBe('');
       expect(Array.isArray(result.messages[3].content)).toBe(true);
+    });
+  });
+
+  describe('trigger clamped to detected context window (task-569 single-owner safety cap)', () => {
+    it('caps an over-large compressAtTokens down to ~95% of n_ctx', async () => {
+      // n_ctx = 100000 → ceiling = floor(100000 * 0.95) = 95000. A stale client value of 1,000,000 is clamped.
+      mockForwarder.getContextLength!.mockResolvedValue(100000);
+      mockForwarder.countTokens!.mockResolvedValue(500);
+      const result = await service.compress([makeTextMessage('user', 'hi')], { enabled: true, compressAtTokens: 1000000, onlyKeepLatestImage: false });
+      expect(result.meta!.compressAtTokens).toBe(95000);
+    });
+
+    it('leaves a compressAtTokens already under the window untouched', async () => {
+      mockForwarder.getContextLength!.mockResolvedValue(100000);
+      mockForwarder.countTokens!.mockResolvedValue(500);
+      const result = await service.compress([makeTextMessage('user', 'hi')], { enabled: true, compressAtTokens: 40000, onlyKeepLatestImage: false });
+      expect(result.meta!.compressAtTokens).toBe(40000);
     });
   });
 
