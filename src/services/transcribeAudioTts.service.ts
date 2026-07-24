@@ -5,12 +5,21 @@ import { splitSentences } from '../utils/splitSentences';
 export type ChatterboxOpts = {
   voice?: string;
   exaggeration?: number;
+  /** task-674: which transcribe-audio engine to synthesize with (indextts default). */
+  engine?: string;
 };
 
 export type VoiceInfo = {
   id: string;
   language: string;
   gender: string;
+};
+
+/** One selectable TTS engine reported by transcribe-audio. */
+export type EngineInfo = {
+  id: string;
+  label: string;
+  available: boolean;
 };
 
 const DEFAULT_VOICE = 'dave';
@@ -85,6 +94,16 @@ export class TranscribeAudioTtsService {
   }
 
   /**
+   * Returns the TTS engines transcribe-audio can synthesize with, and its default engine, so the
+   * studio can populate its engine dropdowns from what is actually installed (task-674).
+   */
+  async listEngines(): Promise<{ engines: EngineInfo[]; defaultEngine: string }> {
+    const res = await fetch(`${TEXT_TO_SPEECH_BASE_URL}/v1/audio/engines`);
+    if (!res.ok) await throwUpstreamError(res);
+    return await res.json() as { engines: EngineInfo[]; defaultEngine: string };
+  }
+
+  /**
    * Synthesizes the full input text via Chatterbox and returns a WAV buffer.
    * @param input - text to convert to speech
    * @param opts - voice and exaggeration level
@@ -101,6 +120,7 @@ export class TranscribeAudioTtsService {
         voice: opts.voice ?? DEFAULT_VOICE,
         response_format: 'wav',
         exaggeration: opts.exaggeration ?? DEFAULT_EXAGGERATION,
+        ...(opts.engine ? { engine: opts.engine } : {}),
       }),
       signal,
     });
@@ -128,6 +148,7 @@ export class TranscribeAudioTtsService {
         voice: opts.voice ?? DEFAULT_VOICE,
         response_format: 'stream',
         exaggeration: opts.exaggeration ?? DEFAULT_EXAGGERATION,
+        ...(opts.engine ? { engine: opts.engine } : {}),
       }),
       signal,
     });

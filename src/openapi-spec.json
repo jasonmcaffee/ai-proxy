@@ -187,6 +187,21 @@
         ]
       }
     },
+    "/v1/audio/engines": {
+      "get": {
+        "operationId": "listEngines",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Available engines plus the engine used when none is named"
+          }
+        },
+        "summary": "List selectable TTS engines (IndexTTS / Chatterbox / Qwen) and the default",
+        "tags": [
+          "audio"
+        ]
+      }
+    },
     "/v1/audio/speech": {
       "post": {
         "operationId": "speak",
@@ -886,6 +901,11 @@
             "type": "boolean",
             "description": "Route to the legacy speaches backend instead of Chatterbox",
             "example": false
+          },
+          "engine": {
+            "type": "string",
+            "description": "TTS engine on the transcribe-audio (audio.cpp) path: indextts (default) | chatterbox | qwen | chatterbox-python",
+            "example": "indextts"
           }
         },
         "required": [

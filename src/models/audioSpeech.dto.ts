@@ -38,6 +38,26 @@ export class AudioSpeechRequestDto {
   @IsOptional()
   @IsBoolean()
   legacy?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'TTS engine on the transcribe-audio (audio.cpp) path: indextts (default) | chatterbox | qwen | chatterbox-python',
+    example: 'indextts',
+  })
+  @IsOptional()
+  @IsString()
+  engine?: string;
+}
+
+/** One selectable TTS engine, as reported by GET /v1/audio/engines. */
+export class AudioEngineDto {
+  @ApiProperty({ description: 'Engine id to send as `engine` on a speech request' })
+  id: string;
+
+  @ApiProperty({ description: 'Human-readable engine name' })
+  label: string;
+
+  @ApiProperty({ description: 'True when the engine model is installed and selectable' })
+  available: boolean;
 }
 
 export class AudioSpeechStreamChunkDto {

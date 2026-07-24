@@ -42,6 +42,8 @@ function chatterboxOptsFrom(body: AudioSpeechRequestDto): ChatterboxOpts {
   return {
     voice: body.voice,
     exaggeration: body.exaggeration,
+    // task-674: engine selects IndexTTS (default) / Chatterbox / Qwen on the audio.cpp path.
+    engine: body.engine,
   };
 }
 
@@ -74,6 +76,19 @@ export class AudioSpeechController {
     } catch (e: any) {
       console.error('[AudioSpeechController] listVoices error:', e?.message ?? e);
       res.status(statusCodeFrom(e, HttpStatus.BAD_GATEWAY)).json({ error: { message: e?.message ?? 'Failed to list voices', type: 'tts_error' } });
+    }
+  }
+
+  @Get('engines')
+  @ApiOperation({ summary: 'List selectable TTS engines (IndexTTS / Chatterbox / Qwen) and the default' })
+  @ApiResponse({ status: 200, description: 'Available engines plus the engine used when none is named' })
+  async listEngines(@Res() res: Response): Promise<void> {
+    try {
+      const result = await this.chatterboxTts.listEngines();
+      res.status(HttpStatus.OK).json(result);
+    } catch (e: any) {
+      console.error('[AudioSpeechController] listEngines error:', e?.message ?? e);
+      res.status(statusCodeFrom(e, HttpStatus.BAD_GATEWAY)).json({ error: { message: e?.message ?? 'Failed to list engines', type: 'tts_error' } });
     }
   }
 
