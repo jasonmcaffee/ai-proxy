@@ -67,9 +67,11 @@ export class ChatController {
     try {
       const base = { ...rest, model: rest.model ?? 'local-model', messages, ...llamaExtras };
       const params = { ...base, stream: true } as LlamaParamsStreaming;
-      const { stream, recoveryCount } = await this.streamBuffer.pipe(params, awaitToolCallCompletion, signal);
+      const { stream } = await this.streamBuffer.pipe(params, awaitToolCallCompletion, signal);
       this.setSseHeaders(res);
-      if (recoveryCount > 0) res.setHeader('x-ai-proxy-stream-recovery', String(recoveryCount));
+      // Flush the headers before any token arrives so the client's reader opens immediately rather than
+      // waiting on the first write (task-1489: the stream must feel live from the first token).
+      (res as any).flushHeaders?.();
       stream.pipe(res);
     } catch (e: any) {
       const status = e?.status ?? HttpStatus.INTERNAL_SERVER_ERROR;

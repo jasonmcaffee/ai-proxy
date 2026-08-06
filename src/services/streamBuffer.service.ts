@@ -40,6 +40,13 @@ export class StreamBufferService {
 
   /**
    * Creates a passthrough stream that pipes llama.cpp SSE output to the client.
+   *
+   * The upstream stream is processed in the BACKGROUND and this returns as soon as llama.cpp has
+   * answered with headers. Awaiting the processing here (as this used to) meant the caller only got
+   * the PassThrough after generation had completely finished, so every token sat in the PassThrough's
+   * buffer and the client received the whole answer in one burst at the end — measured on task-1489:
+   * first byte at 3.47s through the proxy vs 0.22s straight from llama.cpp. Nothing streamed anywhere
+   * in the studio because of it.
    * @param params - typed streaming chat completion params
    * @param awaitToolCallCompletion - if true, buffer tool-call deltas into one chunk
    * @param signal - optional AbortSignal; aborts the upstream llama.cpp request when fired
@@ -52,12 +59,29 @@ export class StreamBufferService {
     output.on('error', (err) => {
       this.logger.error(`PassThrough stream error: ${err instanceof Error ? err.message : err}`);
     });
-    let recoveryCount = 0;
 
     const upstreamStream = await this.forwarder.chatCompletionStream(params, signal);
-    recoveryCount = await this.processStream(upstreamStream, output, params, awaitToolCallCompletion, signal);
+    // Deliberately not awaited — see the note above. A mid-stream failure can no longer become an HTTP
+    // status (headers are already out), so it is reported to the client as an SSE error frame instead.
+    void this.processStream(upstreamStream, output, params, awaitToolCallCompletion, signal)
+      .catch((err) => this.endWithStreamError(output, err));
 
-    return { stream: output, recoveryCount };
+    return { stream: output, recoveryCount: 0 };
+  }
+
+  /**
+   * Closes an in-flight SSE stream with an error frame the client can surface, used when the upstream
+   * fails after the response headers have already gone out.
+   * @param output - the passthrough already being piped to the client
+   * @param err - the upstream failure
+   */
+  private endWithStreamError(output: PassThrough, err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    this.logger.error(`Upstream stream failed mid-response: ${message}`);
+    if (output.destroyed || output.writableEnded) return;
+    output.write(`data: ${JSON.stringify({ error: { message, type: 'proxy_error' } })}\n\n`);
+    output.write(encodeSseLine('[DONE]'));
+    output.end();
   }
 
   /**
@@ -164,10 +188,9 @@ export class StreamBufferService {
         }
       });
 
-      upstream.on('error', (err) => {
-        output.destroy(err);
-        reject(err);
-      });
+      // Reject only — the caller ends `output` with an SSE error frame. Destroying it here would cut the
+      // client off mid-stream with no explanation, since the response headers have already been sent.
+      upstream.on('error', (err) => reject(err));
     });
   }
 
