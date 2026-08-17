@@ -39,7 +39,13 @@ export class ChatController {
     req.on('close', onClientDisconnect);
     res.on('close', onClientDisconnect);
 
-    const llamaExtras = disableThinking ? { chat_template_kwargs: { enable_thinking: false } } : {};
+    // llamaExtras is spread AFTER ...rest, so it must MERGE the caller's chat_template_kwargs rather than
+    // replace them — otherwise `disableThinking: true` silently discards anything else the caller set on
+    // that object (task-1562: Qwen 3.8's `reasoning_effort`, which is the only lever the model exposes for
+    // reasoning effort and travels in exactly this field).
+    const llamaExtras = disableThinking
+      ? { chat_template_kwargs: { ...((rest as Record<string, any>).chat_template_kwargs ?? {}), enable_thinking: false } }
+      : {};
 
     if (stream) {
       await this.runStream(messages as unknown as ChatCompletionMessageParam[], compressionOptions, rest, llamaExtras, awaitToolCallCompletion ?? false, abortController.signal, res);
