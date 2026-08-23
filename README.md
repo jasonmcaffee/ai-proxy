@@ -2,9 +2,9 @@
 
 ## Introduction
 
-`ai-proxy` is an OpenAI-compatible HTTP service that fronts a local llama.cpp server (`localhost:8080`) and adds capabilities the bare server lacks: (1) **context compression** before the request is forwarded, (2) **retry with reasoning-quirk recovery** for the well-known llama.cpp behavior where a model emits only `reasoning_content` and no `content`/`tool_calls`, (3) **server-side tool-call buffering** during streaming so clients can opt out of reassembling streamed JSON fragments, and (4) **image generation** via a local ComfyUI server (`localhost:8083`) using the zib-zit-moody two-stage diffusion workflow.
+`ai-proxy` is an OpenAI-compatible HTTP and Socket.IO service that fronts the local llama.cpp, ComfyUI, transcription, and speech services. It adds context compression, reasoning-only retry recovery, streamed tool-call consolidation, image workflow orchestration with cancellation, speech/transcription routing, and realtime transcription relay.
 
-The proxy is built with **NestJS**, uses the **OpenAI Node SDK** internally to call llama.cpp (typed, SSE-aware), emits an OpenAPI 3 spec at startup via `@nestjs/swagger`, and ships a hand-rolled OpenAI-facade client under `/client` that mirrors the official `openai` npm package interface. Downstream apps install the client via `npm install file:../ai-proxy/client` and call it identically to `openai`.
+Production runs the native **Rust/Axum/Tokio** implementation in `rust/`. The obsolete NestJS server has been removed; the TypeScript client under `/client` remains available to downstream apps without migration changes. The Rust service embeds the checked-in `rust/openapi-spec.json` document.
 
 ## External Dependencies
 
@@ -12,17 +12,41 @@ The proxy is built with **NestJS**, uses the **OpenAI Node SDK** internally to c
 |---|---|---|
 | llama.cpp | `localhost:8080` | LLM inference for chat completions |
 | ComfyUI | `localhost:8083` | Image generation (zib-zit-moody workflow) |
+| Transcribe Audio | `localhost:4140` | Default HTTP and Socket.IO transcription |
+| Text to Speech | `localhost:4150` | Default TTS, streaming TTS, voices, and engines |
+| Speaches | `localhost:8000/v1` | Legacy transcription and speech compatibility |
 
-Override either with env vars: `LLAMA_BASE_URL`, `COMFYUI_BASE_URL`.
+Override them with `LLAMA_BASE_URL`, `COMFYUI_BASE_URL`, `TRANSCRIBE_AUDIO_BASE_URL`, `TRANSCRIBE_AUDIO_WS_URL`, `TEXT_TO_SPEECH_BASE_URL`, and `SPEACHES_BASE_URL`.
 
 ## Dev / Prod Ports
 
 | Environment | Port |
 |---|---|
-| Dev / integration tests | **4141** |
-| Prod (`C:\jason\dev\prod`) | **4142** |
+| Production (Service Manager `AI Proxy`) | **4141** |
+| Rust shadow validation | **4143** |
+| Deterministic Rust integration tests | Ephemeral loopback ports |
 
 ## Quick Start
+
+```powershell
+# Build the production executable
+cargo build --release
+
+# Run formatting, strict lints, and all Rust tests
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+
+# Run a repeatable HTTP benchmark
+target/release/ai-proxy-bench.exe --url http://127.0.0.1:4141/v1/models --requests 5000 --concurrency 25
+
+# Compare the current service with a Rust shadow listener
+target/release/ai-proxy-ab.exe --baseline http://127.0.0.1:4141 --candidate http://127.0.0.1:4143
+```
+
+Start, stop, restart, configure, and inspect production only through the local Service Manager. The production command binds `target\release\ai-proxy-rs.exe` to loopback on port 4141. Useful diagnostics are `GET /healthz`, `/readyz`, `/metrics`, `/version`, `/openapi.json`, and `/api`. Set `AI_PROXY_API_KEY` to require bearer authentication on non-health routes; loopback binding is the default.
+
+### Legacy NestJS commands
 
 ```bash
 # Start dev server
@@ -136,7 +160,9 @@ const result3 = await openai.images.generate(
 }
 ```
 
-## Architecture
+## Historical TypeScript Architecture
+
+The following diagrams document the removed NestJS implementation for historical context. The production Rust implementation preserves these external flows in `rust/src/chat.rs`, `compression.rs`, `audio.rs`, `image.rs`, and `realtime.rs`, with routing and middleware composed in `rust/src/server.rs`.
 
 ```mermaid
 flowchart LR
@@ -202,6 +228,17 @@ sequenceDiagram
 
 ```
 ai-proxy/
+  Cargo.toml                             # Rust package and release profile
+  rust/src/                              # production Axum/Tokio implementation
+    main.rs                              # process startup and configuration
+    server.rs                            # HTTP routes, limits, auth, CORS, diagnostics
+    chat.rs                              # JSON/SSE forwarding and recovery
+    compression.rs                       # context compression compatibility
+    audio.rs                             # TTS/STT routing and streaming
+    image.rs                             # ComfyUI orchestration and cancellation
+    realtime.rs                          # Socket.IO transcription relay
+    bin/                                 # benchmark and A/B validation tools
+  tests/rust_proxy_integration.rs        # deterministic end-to-end Rust suite
   src/
     controllers/
       chat.controller.ts                 # POST /v1/chat/completions
@@ -240,7 +277,7 @@ ai-proxy/
     integration/                         # jest integration tests (real proxy + llama.cpp)
 ```
 
-## Components
+## Historical TypeScript Components
 
 ### `LlamaForwarderService`
 
