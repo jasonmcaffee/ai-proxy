@@ -1,10 +1,14 @@
-use crate::{error::AppError, state::AppState};
+use crate::{error::AppError, sse::ProgressSink, state::AppState};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Instant;
 
 const CHARS_PER_TOKEN: usize = 4;
+
+/// The summariser instruction, kept byte-for-byte identical to the NestJS implementation. Rewording it
+/// silently changes which facts the model preserves, and nothing in a 200 response would reveal that.
+const SUMMARY_SYSTEM_PROMPT: &str = "You compress conversation history into notes for an assistant that must continue the conversation. Produce a compact summary that PRESERVES VERBATIM every specific fact the user stated \u{2014} names, codenames, numbers, amounts, dates, places, IDs, file paths, requirements, decisions, and constraints. Never omit or generalize a concrete value (e.g. keep \"codename BLUEHERON, budget 47 thousand dollars, launch city Reykjavik\" exactly). Prefer a bulleted \"Known facts:\" list of these values, followed by a brief summary of what was discussed and any open questions. Do not answer any question; only summarize.";
 
 /// Client-configurable context compression settings accepted by the TypeScript proxy.
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -61,11 +65,11 @@ pub struct CompressionMeta {
     pub truncated_tool_results: usize,
 }
 
-/// Result of one optional context-compression pass.
+/// Result of one optional context-compression pass. Progress is not returned: it is written to the
+/// caller's `ProgressSink` as each phase happens, which is what makes the client's progress channel live.
 pub struct CompressionResult {
     pub messages: Vec<Value>,
     pub meta: Option<CompressionMeta>,
-    pub progress: Vec<Value>,
 }
 
 /// Change counts recorded while reducing one conversation history.
@@ -77,9 +81,9 @@ struct CompressionChanges {
 }
 
 /// Applies image de-duplication, tool clipping, summary, and eviction in compatibility order.
-pub async fn compress_messages(state: &AppState, messages: Vec<Value>, options: Option<CompressionOptions>) -> CompressionResult {
+pub async fn compress_messages(state: &AppState, messages: Vec<Value>, options: Option<CompressionOptions>, progress: &ProgressSink<'_>) -> CompressionResult {
     let Some(options) = options.filter(|options| options.enabled == Some(true)) else {
-        return CompressionResult { messages, meta: None, progress: Vec::new() };
+        return CompressionResult { messages, meta: None };
     };
     let mut history = messages;
     let raw_input_tokens = count_or_estimate(state, &history).await;
@@ -88,8 +92,11 @@ pub async fn compress_messages(state: &AppState, messages: Vec<Value>, options: 
     } else {
         0
     };
-    let mut progress = Vec::new();
-    let truncated_tool_results = truncate_tool_results(&mut history, options.truncate_tool_results.as_ref(), &mut progress);
+    let truncation = options.truncate_tool_results.as_ref().filter(|options| options.enabled == Some(true));
+    if truncation.is_some() {
+        progress.push("truncating", "Trimming older tool results...").await;
+    }
+    let truncated_tool_results = truncate_tool_results(&mut history, truncation);
     let trigger = resolve_trigger(state, &options).await;
     let strategy = options.strategy.clone().unwrap_or_else(|| "sliding-window".to_owned());
     let mut dropped_messages = 0;
@@ -97,18 +104,18 @@ pub async fn compress_messages(state: &AppState, messages: Vec<Value>, options: 
     let mut input_tokens = count_or_estimate(state, &history).await;
     if trigger.is_some_and(|value| input_tokens > value) {
         let trigger_value = trigger.unwrap_or_default();
-        progress.push(progress_value("analyzing", format!("Compressing conversation ({input_tokens} tokens over {trigger_value})...")));
+        progress.push("analyzing", format!("Compressing conversation ({input_tokens} tokens over {trigger_value})...")).await;
         if strategy == "summarize" {
-            summarized_messages = summarize_older_turns(state, &mut history, &options, &mut progress).await;
+            summarized_messages = summarize_older_turns(state, &mut history, &options, progress).await;
         }
         let target = resolve_target(&options, trigger_value);
         if count_or_estimate(state, &history).await > target {
-            progress.push(progress_value("evicting", "Dropping oldest messages..."));
+            progress.push("evicting", "Dropping oldest messages...").await;
             dropped_messages = evict_to_target(&mut history, target, &options);
         }
         input_tokens = count_or_estimate(state, &history).await;
     }
-    progress.push(progress_value("done", "Ready"));
+    progress.push("done", "Ready").await;
     let compressed = cleared_images + truncated_tool_results + dropped_messages + summarized_messages > 0;
     let changes = CompressionChanges {
         compressed,
@@ -117,11 +124,7 @@ pub async fn compress_messages(state: &AppState, messages: Vec<Value>, options: 
         truncated: truncated_tool_results,
     };
     let meta = build_meta(state, &options, raw_input_tokens, input_tokens, trigger, &strategy, changes).await;
-    CompressionResult {
-        messages: history,
-        meta: Some(meta),
-        progress,
-    }
+    CompressionResult { messages: history, meta: Some(meta) }
 }
 
 /// Resolves and clamps the compression trigger to 95 percent of detected model context.
@@ -253,11 +256,10 @@ fn message_has_image(message: &Value) -> bool {
 }
 
 /// Middle-clips older tool results and reports how many changed.
-fn truncate_tool_results(history: &mut [Value], options: Option<&ToolResultOptions>, progress: &mut Vec<Value>) -> usize {
-    let Some(options) = options.filter(|options| options.enabled == Some(true)) else {
+fn truncate_tool_results(history: &mut [Value], options: Option<&ToolResultOptions>) -> usize {
+    let Some(options) = options else {
         return 0;
     };
-    progress.push(progress_value("truncating", "Trimming older tool results..."));
     let keep_recent = options.keep_recent_tool_results.unwrap_or(3);
     let max_chars = options.max_tool_result_tokens.unwrap_or(512).saturating_mul(CHARS_PER_TOKEN);
     let tool_indices = history.iter().enumerate().filter(|(_, message)| role(message) == Some("tool")).map(|(index, _)| index).collect::<Vec<_>>();
@@ -279,7 +281,7 @@ fn truncate_tool_results(history: &mut [Value], options: Option<&ToolResultOptio
 }
 
 /// Replaces eligible older turns with one factual summary message.
-async fn summarize_older_turns(state: &AppState, history: &mut Vec<Value>, options: &CompressionOptions, progress: &mut Vec<Value>) -> usize {
+async fn summarize_older_turns(state: &AppState, history: &mut Vec<Value>, options: &CompressionOptions, progress: &ProgressSink<'_>) -> usize {
     let head_keep = head_keep_count(history, options);
     let keep_recent = keep_recent_count(history, options, 10);
     let recency_start = head_keep.max(history.len().saturating_sub(keep_recent));
@@ -287,7 +289,7 @@ async fn summarize_older_turns(state: &AppState, history: &mut Vec<Value>, optio
         return 0;
     }
     let older = history[head_keep..recency_start].to_vec();
-    progress.push(progress_value("summarizing", format!("Summarizing {} earlier messages...", older.len())));
+    progress.push("summarizing", format!("Summarizing {} earlier messages...", older.len())).await;
     match generate_summary(state, &older, options).await {
         Ok(summary) => {
             history.splice(head_keep..recency_start, [json!({ "role": "system", "content": format!("[Conversation summary of earlier turns]\n{summary}") })]);
@@ -295,7 +297,7 @@ async fn summarize_older_turns(state: &AppState, history: &mut Vec<Value>, optio
         }
         Err(error) => {
             tracing::warn!(%error, "summary failed; falling back to eviction");
-            progress.push(progress_value("evicting", "Summary failed; trimming instead..."));
+            progress.push("evicting", "Summary failed; trimming instead...").await;
             0
         }
     }
@@ -319,7 +321,7 @@ async fn generate_summary(state: &AppState, older: &[Value], options: &Compressi
         "model": summary.and_then(|value| value.summary_model.as_deref()).unwrap_or("local-model"), "stream": false, "temperature": 0.3,
         "max_tokens": summary.and_then(|value| value.summary_max_tokens).unwrap_or(1024),
         "messages": [
-            { "role": "system", "content": "You compress conversation history into notes for an assistant that must continue the conversation. Produce a compact summary that PRESERVES VERBATIM every specific fact the user stated - names, codenames, numbers, amounts, dates, places, IDs, file paths, requirements, decisions, and constraints. Prefer a Known facts list, then a brief discussion summary and open questions. Do not answer; only summarize." },
+            { "role": "system", "content": SUMMARY_SYSTEM_PROMPT },
             { "role": "user", "content": format!("Summarize this earlier conversation, preserving all concrete facts and values verbatim:\n\n{transcript}") }
         ]
     });
@@ -410,11 +412,6 @@ fn role(message: &Value) -> Option<&str> {
     message.get("role").and_then(Value::as_str)
 }
 
-/// Builds one human-readable compression progress payload.
-fn progress_value(phase: &str, message: impl Into<String>) -> Value {
-    json!({ "phase": phase, "message": message.into() })
-}
-
 /// Returns a UTF-8-safe prefix of at most the requested bytes.
 fn safe_prefix(text: &str, bytes: usize) -> &str {
     let mut end = bytes.min(text.len());
@@ -483,7 +480,7 @@ mod tests {
             max_tool_result_tokens: Some(2),
             keep_recent_tool_results: Some(1),
         };
-        assert_eq!(truncate_tool_results(&mut history, Some(&config), &mut Vec::new()), 1);
+        assert_eq!(truncate_tool_results(&mut history, Some(&config)), 1);
         assert!(history[0]["content"].as_str().unwrap().contains("truncated"));
         assert_eq!(history[1]["content"], "recent");
     }

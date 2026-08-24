@@ -1,7 +1,7 @@
 use crate::{
     compression::{CompressionMeta, CompressionOptions, compress_messages},
     error::{AppError, parse_upstream_error},
-    sse::{SseDecoder, ToolCallBuffer, encode_data, proxy_event},
+    sse::{FrameSender, ProgressSink, SseDecoder, ToolCallBuffer, encode_data, proxy_event},
     state::AppState,
 };
 use axum::{
@@ -18,8 +18,6 @@ use serde_json::{Map, Value, json};
 use std::{convert::Infallible, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-
-type FrameSender = mpsc::Sender<Result<Bytes, Infallible>>;
 
 /// Handles OpenAI-compatible JSON and SSE chat completions with proxy extensions.
 pub async fn chat_completion(State(state): State<AppState>, Json(mut body): Json<Value>) -> Result<Response, AppError> {
@@ -63,7 +61,7 @@ fn validate_optional_type(body: &Value, field: &str, predicate: fn(&Value) -> bo
 
 /// Runs compression and retry handling for a non-streaming completion.
 async fn non_stream_completion(state: AppState, mut body: Value, messages: Vec<Value>, compression: Option<CompressionOptions>) -> Result<Response, AppError> {
-    let result = compress_messages(&state, messages, compression).await;
+    let result = compress_messages(&state, messages, compression, &ProgressSink::new(None)).await;
     body["messages"] = Value::Array(result.messages);
     body["stream"] = Value::Bool(false);
     let mut completion = invoke_with_retry(&state, body).await?;
@@ -82,12 +80,10 @@ async fn stream_completion(state: AppState, mut body: Value, messages: Vec<Value
     if compression.as_ref().is_some_and(|options| options.enabled == Some(true)) {
         let (sender, receiver) = mpsc::channel(64);
         tokio::spawn(async move {
-            let result = compress_messages(&state, messages, compression).await;
-            for progress in result.progress {
-                if !send_bytes(&sender, proxy_event("compression_progress", progress)).await {
-                    return;
-                }
-            }
+            // The sink writes each phase into this same channel as it happens, so the client sees
+            // "Summarizing 12 earlier messages..." while the summary model is still working rather
+            // than receiving every phase at once after compression has already finished.
+            let result = compress_messages(&state, messages, compression, &ProgressSink::new(Some(&sender))).await;
             if let Some(meta) = result.meta
                 && !send_bytes(&sender, proxy_event("context_usage", json!(meta))).await
             {
@@ -118,7 +114,10 @@ async fn run_stream_task(state: AppState, body: Value, await_tools: bool, sender
 /// Streams one response, optionally starts a reasoning-recovery request, and emits one DONE marker.
 async fn process_stream_with_recovery(state: AppState, body: Value, await_tools: bool, upstream: UpstreamResponse, sender: FrameSender) {
     match relay_stream(upstream, await_tools, &sender).await {
-        Ok(outcome) if outcome.only_reasoning() => {
+        // `only_reasoning` alone is not enough to justify a second generation: a client that hits Stop
+        // while the model is still thinking produces exactly the same signal, and recovering there
+        // submits a fresh prompt to the GPU for a reader that has already gone.
+        Ok(outcome) if outcome.only_reasoning() && !outcome.downstream_closed => {
             state.metrics.event("stream_reasoning_recovery");
             let mut recovery_body = body;
             append_recovery_message(&mut recovery_body, &outcome.reasoning);
@@ -126,6 +125,9 @@ async fn process_stream_with_recovery(state: AppState, body: Value, await_tools:
                 let _ = relay_stream(recovery, await_tools, &sender).await;
             }
             let _ = send_bytes(&sender, encode_data("[DONE]")).await;
+        }
+        Ok(outcome) if outcome.downstream_closed => {
+            state.metrics.event("client_disconnected");
         }
         Ok(_) => {
             let _ = send_bytes(&sender, encode_data("[DONE]")).await;
@@ -143,12 +145,15 @@ async fn relay_stream(upstream: UpstreamResponse, await_tools: bool, sender: &Fr
     while let Some(chunk) = stream.next().await {
         for payload in decoder.push(&chunk?) {
             if !relay_payload(&payload, await_tools, &mut outcome, &mut tools, sender).await {
+                outcome.downstream_closed = true;
                 return Ok(outcome);
             }
         }
     }
-    if let Some(payload) = decoder.finish() {
-        let _ = relay_payload(&payload, await_tools, &mut outcome, &mut tools, sender).await;
+    if let Some(payload) = decoder.finish()
+        && !relay_payload(&payload, await_tools, &mut outcome, &mut tools, sender).await
+    {
+        outcome.downstream_closed = true;
     }
     Ok(outcome)
 }
@@ -348,6 +353,7 @@ struct StreamOutcome {
     reasoning: String,
     content: String,
     has_tools: bool,
+    downstream_closed: bool,
 }
 
 impl StreamOutcome {

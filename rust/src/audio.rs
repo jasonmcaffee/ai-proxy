@@ -63,7 +63,7 @@ pub async fn speak(State(state): State<AppState>, Json(body): Json<Value>) -> Re
     validate_speech_request(&body)?;
     let input = required_input(&body)?;
     let legacy = body.get("legacy").and_then(Value::as_bool).unwrap_or(false);
-    let (url, payload, fallback_type) = if legacy {
+    let (url, payload, response_content_type) = if legacy {
         let format = body.get("response_format").and_then(Value::as_str).unwrap_or("mp3");
         (append_path(&state.config.speaches_base_url, "audio/speech")?, legacy_speech_payload(input, &body), content_type_for(format))
     } else {
@@ -73,9 +73,11 @@ pub async fn speak(State(state): State<AppState>, Json(body): Json<Value>) -> Re
     if !response.status().is_success() {
         return Err(tts_upstream_error(response).await);
     }
-    let content_type = response.headers().get(header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).unwrap_or(fallback_type).to_owned();
+    // The declared `response_format` owns the Content-Type, exactly as the NestJS controller did.
+    // Trusting the upstream header instead mislabels the body whenever the engine reports a generic
+    // or simply wrong type, and callers key their decoder off this header.
     let bytes = response.bytes().await.map_err(|error| AppError::transport("tts_error", error))?;
-    Ok(binary_response(StatusCode::OK, &content_type, bytes))
+    Ok(binary_response(StatusCode::OK, response_content_type, bytes))
 }
 
 /// Streams sentence-labeled base64 audio chunks as SSE.
@@ -211,11 +213,12 @@ async fn proxy_json_get(state: &AppState, _upstream: &str, url: Url, error_type:
     let response = state.client.get(url).send().await.map_err(|error| AppError::transport(error_type, error))?;
     let status = response.status();
     let text = response.text().await.map_err(|error| AppError::transport(error_type, error))?;
-    let value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "error": { "message": text, "type": error_type } }));
     if !status.is_success() {
-        let message = value.pointer("/error/message").and_then(Value::as_str).unwrap_or("Upstream request failed");
-        return Err(AppError::new(status, error_type, message));
+        // Keep the upstream status and its body in the message the way the NestJS service did;
+        // collapsing it to a generic string throws away the only diagnostic the caller receives.
+        return Err(AppError::new(status, error_type, format!("transcribe-audio TTS {status}: {text}")));
     }
+    let value = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "error": { "message": text, "type": error_type } }));
     Ok((status, Json(value)).into_response())
 }
 
@@ -236,15 +239,19 @@ async fn stream_legacy_speech(state: AppState, body: Value, sentences: Vec<Strin
     };
     for sentence in sentences {
         let payload = legacy_speech_payload(&sentence, &body);
+        // A failure part-way through must reach the client as an error frame. Ending with a bare
+        // [DONE] would present a truncated reading as a complete one.
         let Ok(response) = state.client.post(url.clone()).json(&payload).send().await else {
-            break;
+            send_tts_stream_error(&sender, "speaches unavailable".to_owned()).await;
+            return;
         };
         if !response.status().is_success() {
             send_tts_stream_error(&sender, format!("speaches {}", response.status())).await;
             return;
         }
         let Ok(audio) = response.bytes().await else {
-            break;
+            send_tts_stream_error(&sender, "speaches stream failed".to_owned()).await;
+            return;
         };
         if !send_audio_frame(&sender, audio, &sentence).await {
             state.metrics.event("cancellation");
@@ -402,55 +409,150 @@ impl RiffDecoder {
     }
 }
 
-/// Splits text using the established abbreviation-aware sentence rules.
+/// Splits text into sentences using the exact rules ported from the NestJS `splitSentences`
+/// utility. The boundary decision is deliberately conservative: a full stop only ends a sentence
+/// when the next word starts with a capital and the preceding token is not an abbreviation,
+/// decimal, initialism, or URL. These boundaries decide the sentence labels on the streaming TTS
+/// channel and, on the legacy path, the actual per-sentence synthesis calls.
 pub fn split_sentences(text: &str, max_words: usize) -> Vec<String> {
     if text.trim().is_empty() {
         return Vec::new();
     }
     let abbreviations = abbreviation_set();
-    let chars = text.char_indices().collect::<Vec<_>>();
-    let mut starts = 0;
-    let mut raw = Vec::new();
-    for (position, (byte_index, character)) in chars.iter().enumerate() {
-        if !matches!(character, '.' | '!' | '?') {
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut sentences = Vec::new();
+    let mut current = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        let character = chars[index];
+        current.push(character);
+        if matches!(character, '.' | '!' | '?') && ends_sentence(character, &current, &chars, index, &abbreviations) {
+            sentences.push(current.trim().to_owned());
+            current.clear();
+            index += 1;
+            while index < chars.len() && chars[index].is_whitespace() {
+                index += 1;
+            }
             continue;
         }
-        let next = chars.get(position + 1).map(|(_, value)| *value);
-        if next.is_some_and(|value| !value.is_whitespace()) {
-            continue;
-        }
-        let candidate = text[starts..=*byte_index].trim();
-        if *character == '.' && is_abbreviation(candidate, &abbreviations) {
-            continue;
-        }
-        raw.push(candidate.to_owned());
-        starts = chars.get(position + 1).map(|(index, _)| *index).unwrap_or(text.len());
-        while starts < text.len() && text[starts..].chars().next().is_some_and(char::is_whitespace) {
-            starts += text[starts..].chars().next().unwrap().len_utf8();
-        }
+        index += 1;
     }
-    if starts < text.len() {
-        raw.push(text[starts..].trim().to_owned());
+    if !current.trim().is_empty() {
+        sentences.push(current.trim().to_owned());
     }
-    split_long_sentences(raw, max_words)
+    split_long_sentences(sentences, max_words)
 }
 
-/// Identifies common abbreviations, decimals, and URLs that do not end a sentence.
-fn is_abbreviation(candidate: &str, abbreviations: &HashSet<&'static str>) -> bool {
-    let lower = candidate
-        .split_whitespace()
-        .last()
-        .unwrap_or_default()
-        .trim_matches(|character: char| !character.is_alphanumeric() && character != '.')
-        .trim_end_matches('.')
-        .to_ascii_lowercase();
-    abbreviations.contains(lower.as_str())
-        || lower.len() == 1
-        || candidate.contains("http://")
-        || candidate.contains("https://")
-        || candidate
-            .rsplit_once('.')
-            .is_some_and(|(left, right)| left.chars().last().is_some_and(|value| value.is_ascii_digit()) && right.chars().all(|value| value.is_ascii_digit()))
+/// Decides whether the terminator just consumed closes a sentence, mirroring the legacy ladder.
+fn ends_sentence(character: char, current: &str, chars: &[char], index: usize, abbreviations: &HashSet<&'static str>) -> bool {
+    let previous = index.checked_sub(1).map(|position| chars[position]);
+    let next = chars.get(index + 1).copied();
+    let first_after = next_visible_char(chars, index + 1);
+    if character == '.' && (previous == Some('.') || next == Some('.')) {
+        // Inside an ellipsis only the final dot can close a sentence, and only when a new
+        // capitalised sentence follows it.
+        let closes_ellipsis = previous == Some('.') && next.is_some_and(char::is_whitespace) && first_after.is_some_and(|value| value.is_ascii_uppercase());
+        if !closes_ellipsis {
+            return false;
+        }
+    }
+    if next.is_some_and(|value| !value.is_whitespace()) {
+        return false;
+    }
+    if character == '!' || character == '?' {
+        return true;
+    }
+    let Some(first_after) = first_after else {
+        return true;
+    };
+    let before_punct = current[..current.len() - character.len_utf8()].trim();
+    let classification = classify_last_token(before_punct, abbreviations);
+    if classification.single_letter || classification.decimal_or_url {
+        return false;
+    }
+    if !classification.abbreviation && first_after.is_ascii_uppercase() {
+        return true;
+    }
+    classification.all_caps && !classification.dotted_initialism && first_after.is_ascii_uppercase()
+}
+
+/// What the token immediately before a full stop looks like, which is what decides the boundary.
+struct TokenClass {
+    abbreviation: bool,
+    single_letter: bool,
+    decimal_or_url: bool,
+    all_caps: bool,
+    dotted_initialism: bool,
+}
+
+/// Classifies the final token of a candidate sentence against every legacy abbreviation rule.
+fn classify_last_token(before_punct: &str, abbreviations: &HashSet<&'static str>) -> TokenClass {
+    let words = before_punct.split_whitespace().collect::<Vec<_>>();
+    let last_few = words[words.len().saturating_sub(3)..].join(" ");
+    let last_word = words.last().copied().unwrap_or_default();
+    let last_word_clean = retain(&last_word.to_ascii_lowercase(), true);
+    let last_word_no_period = last_word.strip_suffix('.').unwrap_or(last_word);
+    let last_word_lower = last_word_no_period.to_ascii_lowercase();
+
+    let decimal_or_url = contains_decimal(&last_few) || contains_url(&last_few);
+    let known = abbreviations.contains(last_word_lower.as_str()) || abbreviations.contains(last_word_lower.replace('.', "").as_str());
+    let single_letter = is_single_letter_abbreviation(last_word);
+    let all_caps = is_all_caps_abbreviation(&retain(last_word_no_period, false));
+    let dotted_initialism = is_dotted_initialism(&retain(last_word, true));
+    let academic = is_academic_abbreviation(&last_word_clean);
+    TokenClass {
+        abbreviation: known || single_letter || decimal_or_url || all_caps || dotted_initialism || academic,
+        single_letter,
+        decimal_or_url,
+        all_caps,
+        dotted_initialism,
+    }
+}
+
+/// Returns the first non-whitespace character at or after the given position.
+fn next_visible_char(chars: &[char], from: usize) -> Option<char> {
+    chars.get(from..)?.iter().copied().find(|character| !character.is_whitespace())
+}
+
+/// Keeps only the characters JavaScript's `\w` class matches, optionally preserving dots.
+fn retain(text: &str, keep_dots: bool) -> String {
+    text.chars().filter(|character| character.is_ascii_alphanumeric() || *character == '_' || (keep_dots && *character == '.')).collect()
+}
+
+/// Reports whether the text holds a decimal number, which never ends a sentence.
+fn contains_decimal(text: &str) -> bool {
+    let chars = text.chars().collect::<Vec<_>>();
+    chars.windows(3).any(|window| window[0].is_ascii_digit() && window[1] == '.' && window[2].is_ascii_digit())
+}
+
+/// Reports whether the text holds a URL or bare domain, which never ends a sentence.
+fn contains_url(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    ["www.", "http://", "https://", ".com", ".org", ".net", ".edu", ".gov", ".io"].iter().any(|marker| lower.contains(marker))
+}
+
+/// Reports a single initial such as `J.`, which is always mid-sentence.
+fn is_single_letter_abbreviation(word: &str) -> bool {
+    let mut characters = word.chars();
+    matches!((characters.next(), characters.next(), characters.next()), (Some(letter), Some('.'), None) if letter.is_ascii_alphabetic())
+}
+
+/// Reports an undotted all-capitals abbreviation of two to five letters, such as `NATO`.
+fn is_all_caps_abbreviation(word: &str) -> bool {
+    (2..=5).contains(&word.chars().count()) && word.chars().all(|character| character.is_ascii_uppercase())
+}
+
+/// Reports a dotted initialism such as `U.S.` or `A.B`.
+fn is_dotted_initialism(word: &str) -> bool {
+    let trimmed = word.strip_suffix('.').unwrap_or(word);
+    let parts = trimmed.split('.').collect::<Vec<_>>();
+    parts.len() >= 2 && parts.iter().all(|part| part.chars().count() == 1 && part.chars().all(|character| character.is_ascii_uppercase()))
+}
+
+/// Reports an academic qualification such as `Ph.D.` or `M.S`.
+fn is_academic_abbreviation(clean_lowercase_word: &str) -> bool {
+    let trimmed = clean_lowercase_word.strip_suffix('.').unwrap_or(clean_lowercase_word);
+    ["ph.d", "m.d", "b.a", "m.a", "b.s", "m.s", "phd", "md", "ba", "ma", "bs", "ms"].contains(&trimmed)
 }
 
 /// Enforces the legacy maximum word count after sentence boundary detection.
@@ -469,10 +571,12 @@ fn split_long_sentences(sentences: Vec<String>, max_words: usize) -> Vec<String>
     output.into_iter().filter(|sentence| !sentence.is_empty()).collect()
 }
 
-/// Builds the fixed abbreviation dictionary used by sentence splitting.
+/// The complete abbreviation dictionary the NestJS splitter used; a shortened list moves boundaries.
 fn abbreviation_set() -> HashSet<&'static str> {
     [
-        "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "vs", "etc", "i.e", "e.g", "am", "pm", "inc", "ltd", "corp", "co", "llc", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "u.s", "u.k", "ph.d", "m.d",
+        "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "vs", "etc", "viz", "i.e", "e.g", "ie", "eg", "am", "pm", "a.m", "p.m", "ad", "bc", "b.c", "a.d", "no", "nos", "vol", "pp", "ed", "eds", "rev", "approx", "est", "min", "max", "inc",
+        "ltd", "corp", "co", "llc", "st", "ave", "blvd", "rd", "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "mon", "tue", "wed", "thu", "fri", "sat", "sun", "u.s", "u.k", "u.n", "e.u", "usa", "nato",
+        "fbi", "cia", "irs", "fda", "epa", "ph.d", "m.d", "b.a", "m.a", "b.s", "m.s", "phd", "md", "ba", "ma", "bs", "ms",
     ]
     .into_iter()
     .collect()
@@ -519,11 +623,34 @@ mod tests {
         assert!(split_sentences("   ", 50).is_empty());
     }
 
-    /// Verifies abbreviations and decimals do not create false boundaries.
+    /// Locks the sentence boundaries to the output of the NestJS `splitSentences` utility, captured
+    /// by running the legacy implementation over this exact corpus. These boundaries decide the
+    /// sentence labels on the streaming TTS channel and the per-sentence calls on the legacy path,
+    /// so a "close enough" splitter silently desynchronises both.
     #[test]
-    fn sentence_splitter_handles_abbreviations_and_decimals() {
-        let sentences = split_sentences("Dr. Jones paid 3.14 dollars. Then she left!", 50);
-        assert_eq!(sentences, vec!["Dr. Jones paid 3.14 dollars.", "Then she left!"]);
+    fn sentence_splitter_matches_the_legacy_corpus() {
+        let corpus: [(&str, &[&str]); 17] = [
+            ("First one. Second one here. third lowercase start.", &["First one.", "Second one here. third lowercase start."]),
+            ("Dr. Jones paid 3.14 dollars. Then she left!", &["Dr. Jones paid 3.14 dollars. Then she left!"]),
+            ("He met J. Smith Today.", &["He met J.", "Smith Today."]),
+            ("Filed with the U.S. Government today.", &["Filed with the U.S. Government today."]),
+            ("Visit example.com Tomorrow.", &["Visit example.com Tomorrow."]),
+            ("She holds a Ph.D. Now she teaches.", &["She holds a Ph.D. Now she teaches."]),
+            ("Wait... and then more.", &["Wait... and then more."]),
+            ("Wait... Then it ended.", &["Wait...", "Then it ended."]),
+            ("Hello world.", &["Hello world."]),
+            ("What now? Nothing! Really.", &["What now?", "Nothing!", "Really."]),
+            ("The NATO Summit begins. Delegates arrive.", &["The NATO Summit begins.", "Delegates arrive."]),
+            ("Go to https://example.org/a Now.", &["Go to https://example.org/a Now."]),
+            ("Call me at 5 p.m. Tomorrow works too.", &["Call me at 5 p.m. Tomorrow works too."]),
+            ("Item no. 5 Was chosen.", &["Item no. 5 Was chosen."]),
+            ("\"Stop that.\" She turned away.", &["\"Stop that.\" She turned away."]),
+            ("Mixed case. sentence continues here. And now A new one.", &["Mixed case. sentence continues here.", "And now A new one."]),
+            ("one two three four five six.", &["one two three four five six."]),
+        ];
+        for (input, expected) in corpus {
+            assert_eq!(split_sentences(input, 50), expected.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>(), "input: {input}");
+        }
     }
 
     /// Verifies long sentences are bounded by the configured word count.

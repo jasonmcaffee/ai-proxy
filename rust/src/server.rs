@@ -2,8 +2,9 @@ use crate::{audio, chat, image, realtime::build_realtime_layer, state::AppState}
 use anyhow::Result;
 use axum::{
     Json, Router,
+    body::Body,
     extract::{DefaultBodyLimit, Request, State},
-    http::{HeaderMap, Method, StatusCode, Uri, header},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -11,12 +12,12 @@ use axum::{
 use serde_json::{Value, json};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use subtle::ConstantTimeEq;
-use tower_http::{
-    cors::{Any, CorsLayer},
-    request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
-};
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
 const OPENAPI_SPEC: &str = include_str!("../openapi-spec.json");
+
+/// The method list the legacy NestJS `enableCors` call advertised on every preflight.
+const LEGACY_CORS_METHODS: &str = "GET,HEAD,PUT,PATCH,POST,DELETE";
 
 /// Builds the complete HTTP and Socket.IO application with security and telemetry middleware.
 pub fn build_app(state: AppState) -> Router {
@@ -38,23 +39,49 @@ pub fn build_app(state: AppState) -> Router {
         .route("/metrics", get(metrics))
         .route("/version", get(version))
         .route("/openapi.json", get(openapi))
+        .route("/api-json", get(openapi))
         .route("/api", get(api_docs))
         .fallback(not_found)
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
-        .layer(middleware::from_fn(add_legacy_cors_credentials))
+        .method_not_allowed_fallback(not_found)
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .layer(middleware::from_fn_with_state(state.clone(), observe_request))
         .layer(middleware::from_fn_with_state(state.clone(), authorize))
         .layer(socket_layer)
+        .layer(middleware::from_fn(legacy_cors))
         .with_state(state)
 }
 
-/// Preserves the credential header emitted by the existing permissive NestJS CORS setup.
-async fn add_legacy_cors_credentials(request: Request, next: Next) -> Response {
+/// Reproduces the legacy `enableCors` behaviour exactly: a wildcard origin with credentials on every
+/// response, and a `204` preflight that advertises the explicit method list and mirrors the requested
+/// headers. Wrapping the Socket.IO layer as well keeps the realtime handshake answerable cross-origin,
+/// which the NestJS gateway got from its own `cors: { origin: '*' }` option.
+async fn legacy_cors(request: Request, next: Next) -> Response {
+    if request.method() == Method::OPTIONS {
+        return legacy_preflight(request.headers());
+    }
     let mut response = next.run(request).await;
-    response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, axum::http::HeaderValue::from_static("true"));
+    apply_common_cors(response.headers_mut());
     response
+}
+
+/// Builds the empty `204` preflight response the Express CORS middleware used to return.
+fn legacy_preflight(headers: &HeaderMap) -> Response {
+    let mut response = Response::builder().status(StatusCode::NO_CONTENT).body(Body::empty()).expect("valid preflight response");
+    let target = response.headers_mut();
+    apply_common_cors(target);
+    target.insert(header::ACCESS_CONTROL_ALLOW_METHODS, HeaderValue::from_static(LEGACY_CORS_METHODS));
+    if let Some(requested) = headers.get(header::ACCESS_CONTROL_REQUEST_HEADERS) {
+        target.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, requested.clone());
+    }
+    target.insert(header::VARY, HeaderValue::from_static("Access-Control-Request-Headers"));
+    response
+}
+
+/// Applies the origin and credential headers every legacy response carried.
+fn apply_common_cors(headers: &mut HeaderMap) {
+    headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+    headers.insert(header::ACCESS_CONTROL_ALLOW_CREDENTIALS, HeaderValue::from_static("true"));
 }
 
 /// Binds the configured listener and serves until Ctrl-C with graceful connection draining.
@@ -106,10 +133,34 @@ async fn openapi() -> Response {
     ([(header::CONTENT_TYPE, "application/json")], OPENAPI_SPEC).into_response()
 }
 
-/// Serves a local documentation entry point linked to the embedded OpenAPI document.
+/// Serves the interactive Swagger UI the NestJS `SwaggerModule.setup('api', …)` mount used to provide,
+/// reading the embedded specification. The assets come from a CDN because the proxy no longer ships a
+/// `node_modules` tree; the page degrades to a plain link to `/openapi.json` when they cannot load.
 async fn api_docs() -> Html<&'static str> {
-    Html("<!doctype html><html><head><title>AI Proxy API</title></head><body><h1>AI Proxy API</h1><p><a href=\"/openapi.json\">OpenAPI specification</a></p></body></html>")
+    Html(SWAGGER_UI_PAGE)
 }
+
+const SWAGGER_UI_PAGE: &str = r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Proxy API</title>
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+<style>body{margin:0}#fallback{font-family:system-ui,sans-serif;padding:2rem}</style>
+</head>
+<body>
+<div id="fallback"><h1>AI Proxy API</h1><p>Swagger UI could not load its assets. The specification is still available at <a href="/openapi.json">/openapi.json</a>.</p></div>
+<div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
+<script>
+  if (window.SwaggerUIBundle) {
+    document.getElementById('fallback').remove();
+    window.SwaggerUIBundle({ url: '/openapi.json', dom_id: '#swagger-ui', deepLinking: true, presets: [SwaggerUIBundle.presets.apis] });
+  }
+</script>
+</body>
+</html>"#;
 
 /// Preserves the existing not-implemented response for video generation.
 async fn video_stub() -> Response {
@@ -168,7 +219,7 @@ fn normalized_route(path: &str) -> &'static str {
         "/metrics" => "metrics",
         "/version" => "version",
         "/api" => "api",
-        "/openapi.json" => "openapi",
+        "/openapi.json" | "/api-json" => "openapi",
         _ if path.starts_with("/v1/audio/transcriptions/realtime") => "transcriptions_realtime",
         _ => "not_found",
     }

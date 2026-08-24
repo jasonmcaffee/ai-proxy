@@ -7,19 +7,20 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use futures_util::future::join_all;
+use futures_util::{StreamExt, future::join_all, stream};
 use reqwest::{
     Client, Url,
     multipart::{Form, Part},
 };
 use serde_json::{Value, json};
 use std::{
+    convert::Infallible,
     net::{IpAddr, Ipv4Addr},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{sync::Mutex, task::JoinHandle};
 
@@ -135,6 +136,12 @@ async fn mock_chat(State(state): State<MockState>, Json(body): Json<Value>) -> R
             json!({"id":"s","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}),
         ]),
         4 => tool_sse_response(),
+        5 => slow_reasoning_sse_response(),
+        6 if body.get("stream").and_then(Value::as_bool) != Some(true) => {
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            Json(json!({ "choices": [{ "index": 0, "message": { "role": "assistant", "content": "summary text" }, "finish_reason": "stop" }] })).into_response()
+        }
+        6 => sse_response([json!({"id":"s","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]})]),
         _ => Json(json!({ "id": "mock", "object": "chat.completion", "choices": [{ "index": 0, "message": { "role": "assistant", "content": "OK" }, "finish_reason": "stop" }] })).into_response(),
     }
 }
@@ -144,6 +151,21 @@ fn sse_response<const N: usize>(chunks: [Value; N]) -> Response {
     let mut text = chunks.into_iter().map(|chunk| format!("data: {chunk}\n\n")).collect::<String>();
     text.push_str("data: [DONE]\n\n");
     Response::builder().status(StatusCode::OK).header(header::CONTENT_TYPE, "text/event-stream").body(Body::from(text)).unwrap()
+}
+
+/// Emits a reasoning-only stream slowly enough that a client can walk away part-way through it,
+/// which is what distinguishes a genuine reasoning-only completion from an abandoned request.
+fn slow_reasoning_sse_response() -> Response {
+    let frames = vec![
+        format!("data: {}\n\n", json!({"id":"r","choices":[{"index":0,"delta":{"reasoning_content":"thinking"},"finish_reason":null}]})),
+        format!("data: {}\n\n", json!({"id":"r","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]})),
+        "data: [DONE]\n\n".to_owned(),
+    ];
+    let body = stream::iter(frames).then(|frame| async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        Ok::<_, Infallible>(Bytes::from(frame))
+    });
+    Response::builder().status(StatusCode::OK).header(header::CONTENT_TYPE, "text/event-stream").body(Body::from_stream(body)).unwrap()
 }
 
 /// Returns fragmented tool-call chunks used to verify consolidation.
@@ -466,9 +488,11 @@ async fn cors_and_route_specific_body_limits_are_enforced() {
         .send()
         .await
         .unwrap();
-    assert_eq!(preflight.status(), StatusCode::OK);
+    // Measured against the running NestJS build: an empty 204 advertising the explicit method list.
+    assert_eq!(preflight.status(), StatusCode::NO_CONTENT);
     assert_eq!(preflight.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(), "*");
     assert_eq!(preflight.headers().get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS).unwrap(), "true");
+    assert_eq!(preflight.headers().get(header::ACCESS_CONTROL_ALLOW_METHODS).unwrap(), "GET,HEAD,PUT,PATCH,POST,DELETE");
 
     let oversized = client
         .post(format!("{}/v1/chat/completions", harness.proxy_url))
@@ -530,4 +554,113 @@ async fn image_client_disconnect_cancels_comfyui_work() {
     }
     assert_eq!(harness.state.queue_cancellations.load(Ordering::SeqCst), 1);
     assert_eq!(harness.state.interruptions.load(Ordering::SeqCst), 1);
+}
+
+/// Verifies a wrong method on a known route returns the legacy JSON 404 envelope rather than an
+/// empty 405. Clients read `message`/`statusCode` off this body, and axum's default method
+/// fallback sends neither.
+#[tokio::test]
+async fn method_mismatch_returns_the_legacy_not_found_envelope() {
+    let harness = start_harness(None, 1024 * 1024).await;
+    let client = client();
+    for (method, path) in [(Method::GET, "/v1/chat/completions"), (Method::PUT, "/v1/models"), (Method::POST, "/v1/audio/voices")] {
+        let response = client.request(method.clone(), format!("{}{path}", harness.proxy_url)).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["message"], format!("Cannot {method} {path}"));
+        assert_eq!(body["error"], "Not Found");
+        assert_eq!(body["statusCode"], 404);
+    }
+}
+
+/// Verifies the OpenAPI document is still reachable at the path the NestJS Swagger mount used, and
+/// that `/api` serves the interactive documentation rather than a placeholder.
+#[tokio::test]
+async fn openapi_document_is_served_on_both_paths() {
+    let harness = start_harness(None, 1024 * 1024).await;
+    let client = client();
+    let legacy: Value = client.get(format!("{}/api-json", harness.proxy_url)).send().await.unwrap().json().await.unwrap();
+    let current: Value = client.get(format!("{}/openapi.json", harness.proxy_url)).send().await.unwrap().json().await.unwrap();
+    assert_eq!(legacy, current);
+    assert!(legacy["paths"]["/v1/chat/completions"].is_object());
+    let docs = client.get(format!("{}/api", harness.proxy_url)).send().await.unwrap();
+    assert_eq!(docs.status(), StatusCode::OK);
+    let page = docs.text().await.unwrap();
+    assert!(page.contains("swagger-ui"), "the /api page must serve Swagger UI");
+    assert!(page.contains("/openapi.json"));
+}
+
+/// Verifies a client that walks away while the model is still reasoning does not cause a second
+/// generation to be submitted upstream. Reasoning-only recovery and an abandoned request produce
+/// the same accumulated state, so only the downstream-closed signal can tell them apart.
+#[tokio::test]
+async fn client_disconnect_during_reasoning_starts_no_second_generation() {
+    let harness = start_harness(None, 1024 * 1024).await;
+    harness.state.chat_mode.store(5, Ordering::SeqCst);
+    let response = client()
+        .post(format!("{}/v1/chat/completions", harness.proxy_url))
+        .json(&json!({ "messages": [{ "role": "user", "content": "hi" }], "stream": true }))
+        .send()
+        .await
+        .unwrap();
+    let mut body = response.bytes_stream();
+    body.next().await;
+    drop(body);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert_eq!(harness.state.chat_calls.load(Ordering::SeqCst), 1, "an abandoned stream must not start a recovery generation");
+}
+
+/// Verifies compression progress reaches the client while the work is still running. Buffering the
+/// phases until compression finishes leaves the progress channel silent for exactly as long as the
+/// summarisation takes, which is the whole interval it exists to report on.
+#[tokio::test]
+async fn compression_progress_streams_while_summarising() {
+    let harness = start_harness(None, 1024 * 1024).await;
+    harness.state.chat_mode.store(6, Ordering::SeqCst);
+    let started = Instant::now();
+    let response = client()
+        .post(format!("{}/v1/chat/completions", harness.proxy_url))
+        .json(&json!({
+            "messages": [
+                { "role": "system", "content": "sys" },
+                { "role": "user", "content": "goal" },
+                { "role": "user", "content": "older one" },
+                { "role": "assistant", "content": "older two" },
+                { "role": "user", "content": "now" }
+            ],
+            "stream": true,
+            "compressionOptions": { "enabled": true, "strategy": "summarize", "compressAtTokens": 10, "targetTokens": 100000, "keepRecentMessages": 1 }
+        }))
+        .send()
+        .await
+        .unwrap();
+    let mut body = response.bytes_stream();
+    let first = body.next().await.unwrap().unwrap();
+    let first_frame_at = started.elapsed();
+    let text = String::from_utf8_lossy(&first).to_string();
+    assert!(text.contains("compression_progress"), "first frame should be a progress event, got: {text}");
+    assert!(first_frame_at < Duration::from_millis(400), "progress arrived only after the 600ms summary finished: {first_frame_at:?}");
+    let rest = body.map(|chunk| String::from_utf8_lossy(&chunk.unwrap()).to_string()).collect::<Vec<_>>().await.join("");
+    let whole = format!("{text}{rest}");
+    assert!(whole.contains("\"phase\":\"summarizing\""));
+    assert!(whole.contains("context_usage"));
+    assert!(started.elapsed() > Duration::from_millis(600), "the summary call should still have taken its full time");
+}
+
+/// Verifies the declared `response_format` decides the legacy speech Content-Type, rather than
+/// whatever the upstream engine happens to label its body with.
+#[tokio::test]
+async fn legacy_speech_content_type_follows_the_requested_format() {
+    let harness = start_harness(None, 1024 * 1024).await;
+    let client = client();
+    let flac = client
+        .post(format!("{}/v1/audio/speech", harness.proxy_url))
+        .json(&json!({ "input": "Hello.", "legacy": true, "response_format": "flac" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(flac.status(), StatusCode::OK);
+    assert_eq!(flac.headers().get(header::CONTENT_TYPE).unwrap(), "audio/flac");
+    let default = client.post(format!("{}/v1/audio/speech", harness.proxy_url)).json(&json!({ "input": "Hello.", "legacy": true })).send().await.unwrap();
+    assert_eq!(default.headers().get(header::CONTENT_TYPE).unwrap(), "audio/mpeg");
 }

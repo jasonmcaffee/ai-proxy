@@ -1,6 +1,34 @@
 use bytes::{Bytes, BytesMut};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, convert::Infallible};
+use tokio::sync::mpsc;
+
+/// Channel every handler writes SSE frames into; dropping the receiver is how a departed client
+/// is detected, so a failed send always means "the downstream body is gone".
+pub type FrameSender = mpsc::Sender<Result<Bytes, Infallible>>;
+
+/// Destination for compression progress frames. When a client stream is attached each phase is
+/// written the moment it happens, so a slow summarisation reports itself while it runs instead of
+/// arriving as one batch after it has already finished.
+pub struct ProgressSink<'a> {
+    sender: Option<&'a FrameSender>,
+}
+
+impl<'a> ProgressSink<'a> {
+    /// Creates a sink that streams to the given client, or a silent sink when there is none.
+    pub fn new(sender: Option<&'a FrameSender>) -> Self {
+        Self { sender }
+    }
+
+    /// Emits one phase/message progress frame, ignoring a client that has already gone away.
+    pub async fn push(&self, phase: &str, message: impl Into<String>) {
+        let Some(sender) = self.sender else {
+            return;
+        };
+        let frame = proxy_event("compression_progress", json!({ "phase": phase, "message": message.into() }));
+        let _ = sender.send(Ok(frame)).await;
+    }
+}
 
 /// Incremental SSE decoder that tolerates arbitrary transport chunk boundaries.
 #[derive(Default)]
