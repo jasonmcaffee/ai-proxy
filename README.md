@@ -44,7 +44,7 @@ target/release/ai-proxy-bench.exe --url http://127.0.0.1:4141/v1/models --reques
 target/release/ai-proxy-ab.exe --baseline http://127.0.0.1:4141 --candidate http://127.0.0.1:4143
 ```
 
-Start, stop, restart, configure, and inspect production only through the local Service Manager. The production command binds `target\release\ai-proxy-rs.exe` to loopback on port 4141. Useful diagnostics are `GET /healthz`, `/readyz`, `/metrics`, `/version`, `/openapi.json`, and `/api`. Set `AI_PROXY_API_KEY` to require bearer authentication on non-health routes; loopback binding is the default.
+Start, stop, restart, configure, and inspect production only through the local Service Manager. The production command binds `target\release\ai-proxy-rs.exe` to loopback on port 4141. Useful diagnostics are `GET /healthz`, `/readyz`, `/metrics`, `/version`, `/openapi.json`, `/api-json` (the path the NestJS Swagger mount used, kept as an alias), and `/api`, which serves Swagger UI over the embedded specification. Set `AI_PROXY_API_KEY` to require bearer authentication on non-health routes; loopback binding is the default.
 
 ### Legacy NestJS commands
 
